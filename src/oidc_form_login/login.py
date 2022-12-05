@@ -296,7 +296,6 @@ def main():
     parser.add_argument("--client-secret")
     parser.add_argument("-u", "--user", "--username", dest="username")
     parser.add_argument("-p", "--pass", "--password", dest="password")
-    parser.add_argument("-p", "--pass", "--password", dest="password")
     parser.add_argument("--username-field", help="name of username input field in login form")
     parser.add_argument("--password-field", help="name of password input field in login form")
     parser.add_argument("--authorization-endpoint")
