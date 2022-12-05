@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools >= 60.2.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oidc-form-login"
+version = "0.1"
+authors = [ { name = "Anders Norlander" } ]
+requires-python = ">=3.8"
+description = "Login via forms"
+urls = {}
+classifiers = [
+    "Programming Language :: Python :: 3"
+]
+dependencies = [
+    "beautifulsoup4",
+    "pip_system_certs",
+    "requests",
+]
+
+[project.optional-dependencies]
+dev = [
+    "black[d]",
+    "coverage[toml]",
+    "mypy",
+    "pyinstaller",
+    "pylint",
+    "pytest",
+    "pytest-cov",
+    "types-requests",
+]
+server = ["waitress", "Paste"]
+
+[project.scripts]
+oidc-form-login = "oidc_form_login.login:main"
+gangway-login = "oidc_form_login.gangway:main"
+
+
+###
+### [tool.black]
+### https://black.readthedocs.io/en/stable/usage_and_configuration/the_basics.html
+[tool.black]
+target-version = ["py38"]
+
+###
+### [tool.mypy]
+### https://mypy.readthedocs.io/en/stable/config_file.html
+[tool.mypy]
+ignore_missing_imports = true
+
+###
+### [tool.pytest]
+### https://docs.pytest.org/en/6.2.x/customize.html#
+[tool.pytest.ini_options]
+pythonpath = "src"
+addopts = [
+    "--import-mode=importlib",
+]
+
+
+###
+### [tool.coverage]
+### https://coverage.readthedocs.io/en/6.5.0/config.html
+[tool.coverage.run]
+source = [
+    "src",
+#    "tests"
+]
+
+[tool.coverage.paths]
+source = ["src/"]
+
+[tool.coverage.report]
+show_missing = true
+precision = 2
