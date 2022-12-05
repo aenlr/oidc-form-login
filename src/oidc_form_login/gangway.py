@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+import shlex
+
 try:
     import pip_system_certs.wrapt_requests  # noqa
 except ImportError:
@@ -50,15 +52,8 @@ def process_gangway_commandline(r: Response, *, interactive=False, run_all=False
                     continuation.append(stripped)
                 else:
                     continuation.append(stripped.rstrip())
-                    if os.name == "nt":
-                        # continuation = [c.rstrip("\\") + "`" for c in continuation]
-                        # continuation[-1] = continuation[-1].rstrip("`")
-                        # lines.extend(continuation)
-                        # lines.append("")
-                        continuation = [c.rstrip("\\").strip() for i, c in enumerate(continuation)]
-                        lines.append(" ".join(continuation))
-                    else:
-                        lines.extend(continuation)
+                    continuation = [c.rstrip("\\").strip() for i, c in enumerate(continuation)]
+                    lines.append(" ".join(continuation))
                     continuation.clear()
             else:
                 if stripped.startswith("$"):
@@ -80,13 +75,19 @@ def process_gangway_commandline(r: Response, *, interactive=False, run_all=False
                 break
         if not set_credentials_cmd:
             print("No set-credentials command found", file=sys.stderr)
-            print("\n".join(code_blocks), file=sys.stderr)
+            if code_blocks:
+                print("\n".join(code_blocks), file=sys.stderr)
+            else:
+                print(r.text, file=sys.stderr)
             return False
         lines = set_credentials_cmd
 
     if not lines:
         print("No kubectl commands found", file=sys.stderr)
-        print(r.text, file=sys.stderr)
+        if code_blocks:
+            print("\n".join(code_blocks), file=sys.stderr)
+        else:
+            print(r.text, file=sys.stderr)
         return False
 
     if os.name == "nt":
@@ -110,12 +111,19 @@ def process_gangway_commandline(r: Response, *, interactive=False, run_all=False
         elif confirmation == "q":
             return False
 
-    with subprocess.Popen(args, stdin=subprocess.PIPE, stdout=None, stderr=None) as proc:
-        proc.stdin.write(script.encode("utf-8"))
-        proc.communicate()
+    if len(lines) == 1:
+        args = shlex.split(lines[0])
+        proc = subprocess.run(args)
         if proc.returncode != 0:
             print(f"Command exited with status non-zero status: {proc.returncode}", file=sys.stderr)
             return False
+    else:
+        with subprocess.Popen(args, stdin=subprocess.PIPE, stdout=None, stderr=None) as proc:
+            proc.stdin.write(script.encode("utf-8"))
+            proc.communicate()
+            if proc.returncode != 0:
+                print(f"Command exited with status non-zero status: {proc.returncode}", file=sys.stderr)
+                return False
 
     return True
 
