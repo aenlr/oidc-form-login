@@ -29,7 +29,7 @@ Install globally or in active virtual environment
 
 #### Create virtual environment (Windows cmd.exe)
     C:\> python3 -m venv venv
-    C:\> . venv/Scripts/activate
+    C:\> venv/Scripts/activate
 
 #### Create virtual environment (Windows PowerShell)
     PS1> python3 -m venv venv
