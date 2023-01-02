@@ -153,13 +153,16 @@ def main():
             args.password = getpass("Password: ")
 
     for url in args.url:
-        r = login(args.username, args.password, url, verify=args.verify)
-        if r.ok:
+        ok, r = login(args.username, args.password, url, verify=args.verify)
+        if ok:
             if not process_gangway_commandline(r, interactive=args.interactive, run_all=args.all):
                 parser.exit(1)
+        elif r.ok:
+            print(r.text, file=sys.stderr)
+            parser.exit(1, f"Login stopped at {r.url}")
         else:
             print(r.text, file=sys.stderr)
-            parser.exit(1, f"Login failed with status {r.status_code}")
+            parser.exit(1, f"Login failed with status {r.status_code} at {r.url}")
 
 
 if __name__ == '__main__':

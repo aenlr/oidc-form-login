@@ -9,7 +9,7 @@ import os
 import re
 import sys
 import urllib.parse
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, Tuple
 from urllib.parse import parse_qs, urljoin
 
 import requests
@@ -160,7 +160,7 @@ def process_forms(
     username_field: Optional[str] = None,
     password_field: Optional[str] = None,
     verify=True
-):
+) -> Optional[Response]:
     soup = BeautifulSoup(html, features="html.parser")
     forms = list(soup("form"))
     for form in forms:
@@ -204,6 +204,22 @@ def process_forms(
                                      verify=verify)
 
 
+def find_navigation_links(html: str, url: str) -> List[str]:
+    soup = BeautifulSoup(html, features="html.parser")
+    elements = list(soup("a"))
+    links: List[str] = []
+    base = urllib3.util.parse_url(url)
+    for a in elements:
+        if a.has_attr("href"):
+            href = a.get("href")
+            if href and not href.startswith("#"):
+                href = urljoin(str(url), href)
+                target = urllib3.util.parse_url(href)
+                if target.host != base.host or target.path != base.path:
+                    links.append(href)
+    return links
+
+
 def login(username: str,
           password: str,
           url: Optional[str] = None,
@@ -215,7 +231,7 @@ def login(username: str,
           username_field: Optional[str] = None,
           password_field: Optional[str] = None,
           verify=True
-          ):
+          ) -> Tuple[bool, Response]:
     auth_params: Dict[str, str] = dict(params) if params else {}
 
     if issuer:
@@ -252,10 +268,12 @@ def login(username: str,
     else:
         auth_url = None
 
+    redirected = False
     with Session() as session:
         while True:
             r = session.get(url, verify=verify, allow_redirects=False)
             if r.is_redirect:
+                redirected = True
                 url = urljoin(url, r.headers["location"])
                 redirect_url = urllib3.util.parse_url(url)
 
@@ -270,21 +288,29 @@ def login(username: str,
                         pass
                     elif any(p in redirect_params for p in ("token", "id_token")):
                         pass
+            elif r.text and not redirected:
+                links = find_navigation_links(r.text, url)
+                if len(links) == 1:
+                    url = links[0]
+                else:
+                    break
             else:
                 break
 
         stop_url = urllib3.util.parse_url(url)
         content_type = parse_content_type(r)
         if content_type == "text/html":
-            return process_forms(username, password,
+            post_response = process_forms(username, password,
                                  url=stop_url,
                                  html=r.text,
                                  session=session,
                                  username_field=username_field,
                                  password_field=password_field,
                                  verify=verify)
+            if post_response:
+                return post_response.ok, post_response
 
-        return r
+        return False, r
 
 
 def main():
@@ -328,18 +354,21 @@ def main():
     if args.redirect_uri:
         auth_params["redirect_uri"] = args.redirect_uri
 
-    r = login(args.username, args.password, args.url,
+    ok, r = login(args.username, args.password, args.url,
               authorization_endpoint=args.authorization_endpoint,
               token_endpoint=args.token_endpoint,
               params=auth_params,
               username_field=args.username_field,
               password_field=args.password_field,
               verify=args.verify)
-    if r.ok:
+    if ok:
         print(r.text)
+    elif r.ok:
+        print(r.text, file=sys.stderr)
+        parser.exit(1, f"Login stopped at {r.url}")
     else:
         print(r.text, file=sys.stderr)
-        parser.exit(1, f"Login failed with status {r.status_code}")
+        parser.exit(1, f"Login failed with status {r.status_code} at {r.url}")
 
 
 if __name__ == '__main__':
