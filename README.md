@@ -28,11 +28,11 @@ Install globally or in active virtual environment
     $ . venv/bin/activate
 
 #### Create virtual environment (Windows cmd.exe)
-    C:\> python3 -m venv venv
+    C:\> python -m venv venv
     C:\> venv/Scripts/activate
 
 #### Create virtual environment (Windows PowerShell)
-    PS1> python3 -m venv venv
+    PS1> python -m venv venv
     PS1> ./venv/Scripts/activate.ps1
 
 ### Install dependencies
@@ -41,4 +41,3 @@ Install globally or in active virtual environment
 ### Package executable
 
     (venv) $ pyinstaller --name gangway-login --onefile src/oidc_form_login/gangway.py
-    

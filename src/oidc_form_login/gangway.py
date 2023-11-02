@@ -10,6 +10,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 
 from bs4 import BeautifulSoup
 from requests import Response
@@ -39,8 +40,11 @@ def process_gangway_commandline(r: Response, *, interactive=False, run_all=False
         return False
 
     soup = BeautifulSoup(r.text, features="html.parser")
-    code_blocks = [t.get_text().lstrip() for t in soup.find_all("code", class_="language-bash")
-                   if re.match(".*^kubectl ", t.get_text(), re.DOTALL | re.MULTILINE)]
+    code_blocks = [
+        t.get_text().lstrip()
+        for t in soup.find_all("code", class_="language-bash")
+        if re.match(".*^kubectl ", t.get_text(), re.DOTALL | re.MULTILINE)
+    ]
 
     lines = []
     for block in code_blocks:
@@ -52,7 +56,9 @@ def process_gangway_commandline(r: Response, *, interactive=False, run_all=False
                     continuation.append(stripped)
                 else:
                     continuation.append(stripped.rstrip())
-                    continuation = [c.rstrip("\\").strip() for i, c in enumerate(continuation)]
+                    continuation = [
+                        c.rstrip("\\").strip() for i, c in enumerate(continuation)
+                    ]
                     lines.append(" ".join(continuation))
                     continuation.clear()
             else:
@@ -94,7 +100,8 @@ def process_gangway_commandline(r: Response, *, interactive=False, run_all=False
         for i, line in enumerate(lines):
             m = re.match(r"(.+)> ?([a-zA-Z0-9._\"-]+)$", line)
             if m:
-                lines[i] = f"{m[1]} | Out-File {m[2]} -Encoding utf8"
+                pem = m[1].replace("\\", "")
+                lines[i] = f"{pem} | Out-File {m[2]} -Encoding ascii"
 
         args = ["powershell.exe", "-nologo", "-noprofile", "-Command", "-"]
     else:
@@ -115,14 +122,47 @@ def process_gangway_commandline(r: Response, *, interactive=False, run_all=False
         args = shlex.split(lines[0])
         proc = subprocess.run(args)
         if proc.returncode != 0:
-            print(f"Command exited with status non-zero status: {proc.returncode}", file=sys.stderr)
+            print(
+                f"Command exited with status non-zero status: {proc.returncode}",
+                file=sys.stderr,
+            )
             return False
+    elif os.name == "nt":
+        fd, ps1 = tempfile.mkstemp(suffix=".ps1")
+        try:
+            try:
+                os.write(fd, "\n".join(lines).encode("latin1"))
+            finally:
+                os.close(fd)
+            args = [
+                "powershell.exe",
+                "-nologo",
+                "-noprofile",
+                "-Command",
+                ps1,
+            ]
+            proc = subprocess.run(args)
+            if proc.returncode != 0:
+                print(
+                    f"Command exited with status non-zero status: {proc.returncode}",
+                    file=sys.stderr,
+                )
+                return False
+
+        finally:
+            os.remove(ps1)
+
     else:
-        with subprocess.Popen(args, stdin=subprocess.PIPE, stdout=None, stderr=None) as proc:
+        with subprocess.Popen(
+            args, stdin=subprocess.PIPE, stdout=None, stderr=None
+        ) as proc:
             proc.stdin.write(script.encode("utf-8"))
             proc.communicate()
             if proc.returncode != 0:
-                print(f"Command exited with status non-zero status: {proc.returncode}", file=sys.stderr)
+                print(
+                    f"Command exited with status non-zero status: {proc.returncode}",
+                    file=sys.stderr,
+                )
                 return False
 
     return True
@@ -131,15 +171,29 @@ def process_gangway_commandline(r: Response, *, interactive=False, run_all=False
 def main():
     from argparse import ArgumentParser
     from getpass import getpass, getuser
+
     parser = ArgumentParser()
     parser.add_argument("-u", "--user", "--username", dest="username")
     parser.add_argument("-p", "--pass", "--password", dest="password")
-    parser.add_argument("-i", "--interactive", dest="interactive", default=True, action="store_true",
-                        help="confirm commands to run")
-    parser.add_argument("-y", "--non-interactive", dest="interactive", action="store_false")
-    parser.add_argument("--all", action="store_true",
-                        help="run all gangway commands (not only kubectl config set-credentials)")
-    parser.add_argument("-k", "--insecure", default=True, dest="verify", action="store_false")
+    parser.add_argument(
+        "-i",
+        "--interactive",
+        dest="interactive",
+        default=True,
+        action="store_true",
+        help="confirm commands to run",
+    )
+    parser.add_argument(
+        "-y", "--non-interactive", dest="interactive", action="store_false"
+    )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="run all gangway commands (not only kubectl config set-credentials)",
+    )
+    parser.add_argument(
+        "-k", "--insecure", default=True, dest="verify", action="store_false"
+    )
     parser.add_argument("url", nargs="+")
 
     args = parser.parse_args()
@@ -155,7 +209,9 @@ def main():
     for url in args.url:
         ok, r = login(args.username, args.password, url, verify=args.verify)
         if ok:
-            if not process_gangway_commandline(r, interactive=args.interactive, run_all=args.all):
+            if not process_gangway_commandline(
+                r, interactive=args.interactive, run_all=args.all
+            ):
                 parser.exit(1)
         elif r.ok:
             print(r.text, file=sys.stderr)
@@ -165,5 +221,5 @@ def main():
             parser.exit(1, f"Login failed with status {r.status_code} at {r.url}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
