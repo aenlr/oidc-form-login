@@ -12,6 +12,7 @@ import urllib.parse
 from typing import Optional, Dict, Any, List, Tuple
 from urllib.parse import parse_qs, urljoin
 
+import bs4
 import requests
 import urllib3.util
 from bs4 import BeautifulSoup
@@ -23,7 +24,7 @@ class LoginError(Exception):
     pass
 
 
-def replace_query_param(q, name, value, encode=True):
+def replace_query_param(q: str, name: str, value: str, encode=True):
     """ Replace a query string parameter with a new value.
 
     Not using urllib in case there are improperly encoded
@@ -43,9 +44,7 @@ def replace_query_param(q, name, value, encode=True):
     'foo=bar&baz=oy&q='
     """
     repl = f"{name}={urllib.parse.quote(value) if encode else value}"
-    q, n = re.subn(rf"(^\?|&|^)({re.escape(name)}=[^&]*)",
-                   lambda m: f"{m[1]}{repl}",
-                   q)
+    q, n = re.subn(rf"(^\?|&|^)({re.escape(name)}=[^&]*)",rf"\1{repl}", q)
     if not n:
         q = f"{q}&{repl}" if q else repl
     return q
@@ -103,10 +102,10 @@ def submit_login_form(
     password: str,
     url: Url,
     session: requests.Session,
-    soup,
-    form,
-    username_field,
-    password_field,
+    soup: BeautifulSoup,
+    form: bs4.Tag,
+    username_field: bs4.Tag,
+    password_field: bs4.Tag,
     fields: list,
     verify=True
 ) -> Response:
@@ -117,7 +116,7 @@ def submit_login_form(
         submit_button = None
 
     action = form["action"] if form.has_attr("action") else str(url)
-    method = form["method"].upper() if form.has_attr("method") else "GET"
+    method = str(form["method"]).upper() if form.has_attr("method") else "GET"
     action = urljoin(url_no_query(url), action)
 
     payload = {}
@@ -125,14 +124,14 @@ def submit_login_form(
     password_field_name = password_field["name"]
     for f in fields:
         name = f["name"]
-        type = f.attrs.get("type", "text")
+        field_type = f.attrs.get("type", "text")
         if name == username_field_name:
             payload[name] = username
         elif name == password_field_name:
             payload[name] = password
         elif f.name == "textarea":
             payload["name"] = f.get_text()
-        elif type == "submit":
+        elif field_type == "submit":
             if name == submit_button["name"]:
                 if f.has_attr("value"):
                     payload["name"] = f["value"]
@@ -203,6 +202,7 @@ def process_forms(
                                      fields=fields,
                                      verify=verify)
 
+    return None
 
 def find_navigation_links(html: str, url: str) -> List[str]:
     soup = BeautifulSoup(html, features="html.parser")
@@ -226,13 +226,13 @@ def login(username: str,
           *,
           issuer: Optional[str] = None,
           authorization_endpoint: Optional[str] = None,
-          params: Optional[Dict[str, None]] = None,
+          params: Optional[Dict[str, str]] = None,
           token_endpoint: Optional[str] = None,
           username_field: Optional[str] = None,
           password_field: Optional[str] = None,
           verify=True
           ) -> Tuple[bool, Response]:
-    auth_params: Dict[str, str] = dict(params) if params else {}
+    auth_params = dict(params or {})
 
     if issuer:
         oidc_config: Dict[str, Any] = requests.get(f"{issuer}/.well-known/openid-configuration").json()
@@ -341,6 +341,7 @@ def main():
         if not args.password:
             args.password = getpass("Password: ")
 
+    # type: dict[str, str]
     auth_params = {}
     if args.scope:
         auth_params["scope"] = " ".join(s for e in args.scope
