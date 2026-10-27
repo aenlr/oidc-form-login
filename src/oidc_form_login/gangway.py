@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import shlex
+import requests
+import shutil
 
 try:
     import pip_system_certs.wrapt_requests  # noqa
@@ -11,6 +13,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from typing import Optional
 
 from bs4 import BeautifulSoup
 from requests import Response
@@ -168,6 +171,40 @@ def process_gangway_commandline(r: Response, *, interactive=False, run_all=False
     return True
 
 
+def download_kubeconfig(session: requests.Session, url: str, output_file: Optional[str] = None, verify=True) -> bool:
+    if not output_file:
+        output_file = os.path.expanduser("~/.kube/config")
+
+    print(f"Downloading kubeconfig from {url}...")
+
+    try:
+        r = session.get(url, verify=verify)
+        r.raise_for_status()
+        
+        # Verify that we didn't just download the login page (HTML) instead of the config (YAML)
+        content_type = r.headers.get("Content-Type", "").lower()
+        if "text/html" in content_type or r.text.strip().startswith("<"):
+            print("Error: Downloaded content appears to be HTML. Authentication likely failed or redirected.", file=sys.stderr)
+            return False
+            
+    except Exception as e:
+        print(f"Failed to download kubeconfig: {e}", file=sys.stderr)
+        return False
+
+    if os.path.exists(output_file):
+        backup_file = output_file + ".bak"
+        print(f"Backing up existing config to {backup_file}")
+        shutil.copy2(output_file, backup_file)
+
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+
+    with open(output_file, "wb") as f:
+        f.write(r.content)
+
+    print(f"Kubeconfig saved to {output_file}")
+    return True
+
+
 def main():
     from argparse import ArgumentParser
     from getpass import getpass, getuser
@@ -194,6 +231,9 @@ def main():
     parser.add_argument(
         "-k", "--insecure", default=True, dest="verify", action="store_false"
     )
+    parser.add_argument("-c", "--download-conf", action="store_true", help="Download kubeconfig from <url>/kubeconf")
+    parser.add_argument("-C", "--download-url", help="URL to download kubeconfig from")
+    parser.add_argument("--output-file", help="Path to save kubeconfig (default: ~/.kube/config)")
     parser.add_argument("url", nargs="+")
 
     args = parser.parse_args()
@@ -207,19 +247,31 @@ def main():
             args.password = getpass("Password: ")
 
     for url in args.url:
-        ok, r = login(args.username, args.password, url, verify=args.verify)
-        if ok:
-            if not process_gangway_commandline(
-                r, interactive=args.interactive, run_all=args.all
-            ):
-                parser.exit(1)
-        elif r.ok:
-            print(r.text, file=sys.stderr)
-            parser.exit(1, f"Login stopped at {r.url}")
-        else:
-            print(r.text, file=sys.stderr)
-            parser.exit(1, f"Login failed with status {r.status_code} at {r.url}")
+        ok, r, session = login(args.username, args.password, url, verify=args.verify)
+        with session:
+            if ok:
+                target_download_url = None
+                if args.download_conf:
+                    target_download_url = url.rstrip('/') + '/kubeconf'
+                elif args.download_url:
+                    target_download_url = args.download_url
 
+                if target_download_url:
+                    if not download_kubeconfig(
+                        session, target_download_url, args.output_file, args.verify
+                    ):
+                        sys.exit(1)
+                elif not process_gangway_commandline(
+                    r, interactive=args.interactive, run_all=args.all
+                ):
+                    sys.exit(1)
+            elif r.ok:
+                print(r.text, file=sys.stderr)
+                sys.exit(1, f"Login stopped at {r.url}")
+            else:
+                print(r.text, file=sys.stderr)
+                sys.exit(1, f"Login failed with status {r.status_code} at {r.url}")
+        
 
 if __name__ == "__main__":
     main()

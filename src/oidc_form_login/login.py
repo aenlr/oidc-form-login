@@ -4,7 +4,6 @@ try:
 except ImportError:
     pass
 
-import cgi
 import os
 import re
 import sys
@@ -58,7 +57,7 @@ def url_no_query(url: Url):
 def parse_content_type(r: Response) -> Optional[str]:
     h = r.headers.get("content-type")
     if h:
-        return cgi.parse_header(h)[0].lower()
+        return h.split(';')[0].strip().lower()
     return None
 
 
@@ -221,18 +220,19 @@ def find_navigation_links(html: str, url: str) -> List[str]:
 
 
 def login(username: str,
-          password: str,
-          url: Optional[str] = None,
-          *,
-          issuer: Optional[str] = None,
-          authorization_endpoint: Optional[str] = None,
-          params: Optional[Dict[str, None]] = None,
-          token_endpoint: Optional[str] = None,
-          username_field: Optional[str] = None,
-          password_field: Optional[str] = None,
-          verify=True
-          ) -> Tuple[bool, Response]:
+           password: str,
+           url: Optional[str] = None,
+           *,
+           issuer: Optional[str] = None,
+           authorization_endpoint: Optional[str] = None,
+           params: Optional[Dict[str, None]] = None,
+           token_endpoint: Optional[str] = None,
+           username_field: Optional[str] = None,
+           password_field: Optional[str] = None,
+           verify=True
+           ) -> Tuple[bool, Response, requests.Session]:
     auth_params: Dict[str, str] = dict(params) if params else {}
+
 
     if issuer:
         oidc_config: Dict[str, Any] = requests.get(f"{issuer}/.well-known/openid-configuration").json()
@@ -269,7 +269,9 @@ def login(username: str,
         auth_url = None
 
     redirected = False
-    with Session() as session:
+    session = Session()
+    r = None
+    try:
         while True:
             r = session.get(url, verify=verify, allow_redirects=False)
             if r.is_redirect:
@@ -301,16 +303,19 @@ def login(username: str,
         content_type = parse_content_type(r)
         if content_type == "text/html":
             post_response = process_forms(username, password,
-                                 url=stop_url,
-                                 html=r.text,
-                                 session=session,
-                                 username_field=username_field,
-                                 password_field=password_field,
-                                 verify=verify)
+                                   url=stop_url,
+                                   html=r.text,
+                                   session=session,
+                                   username_field=username_field,
+                                   password_field=password_field,
+                                   verify=verify)
             if post_response:
-                return post_response.ok, post_response
+                return post_response.ok, post_response, session
 
-        return False, r
+        return False, r, session
+    except Exception as e:
+        return False, r, session
+
 
 
 def main():
@@ -354,21 +359,22 @@ def main():
     if args.redirect_uri:
         auth_params["redirect_uri"] = args.redirect_uri
 
-    ok, r = login(args.username, args.password, args.url,
-              authorization_endpoint=args.authorization_endpoint,
-              token_endpoint=args.token_endpoint,
-              params=auth_params,
-              username_field=args.username_field,
-              password_field=args.password_field,
-              verify=args.verify)
+    ok, r, session = login(args.username, args.password, args.url,
+               authorization_endpoint=args.authorization_endpoint,
+               token_endpoint=args.token_endpoint,
+               params=auth_params,
+               username_field=args.username_field,
+               password_field=args.password_field,
+               verify=args.verify)
+
     if ok:
         print(r.text)
     elif r.ok:
         print(r.text, file=sys.stderr)
-        parser.exit(1, f"Login stopped at {r.url}")
+        sys.exit(1, f"Login stopped at {r.url}")
     else:
         print(r.text, file=sys.stderr)
-        parser.exit(1, f"Login failed with status {r.status_code} at {r.url}")
+        sys.exit(1, f"Login failed with status {r.status_code} at {r.url}")
 
 
 if __name__ == '__main__':
