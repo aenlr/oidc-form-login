@@ -175,6 +175,8 @@ def process_forms(
 
         if username_field:
             uf = next((f for f in text_inputs if f.get('name') == username_field), None)
+            if not uf:
+                uf = next((f for f in text_inputs if f.get('id') == username_field), None)
         else:
             uf = next((f for f in text_inputs if is_input_autocomplete_username(f)), None)
             if not uf:
@@ -182,6 +184,8 @@ def process_forms(
 
         if password_field:
             pf = next((f for f in password_inputs if f.get('name') == password_field), None)
+            if not pf:
+                pf = next((f for f in password_inputs if f.get('id') == password_field), None)
         else:
             pf = next((f for f in password_inputs if is_input_autocomplete_password(f)), None)
             if not pf:
