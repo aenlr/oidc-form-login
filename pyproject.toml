@@ -22,6 +22,7 @@ dependencies = [
 dev = [
     "black[d]",
     "coverage[toml]",
+    "legacy-cgi; python_version >= '3.13'",
     "mypy",
     "pyinstaller",
     "pylint",
@@ -29,7 +30,6 @@ dev = [
     "pytest-cov",
     "types-requests",
 ]
-server = ["waitress", "Paste"]
 
 [project.scripts]
 oidc-form-login = "oidc_form_login.login:main"
@@ -40,7 +40,7 @@ gangway-login = "oidc_form_login.gangway:main"
 ### [tool.black]
 ### https://black.readthedocs.io/en/stable/usage_and_configuration/the_basics.html
 [tool.black]
-target-version = ["py38"]
+target-version = ["py313"]
 
 ###
 ### [tool.mypy]
@@ -55,6 +55,7 @@ ignore_missing_imports = true
 pythonpath = "src"
 addopts = [
     "--import-mode=importlib",
+    "--doctest-modules"
 ]
 
 
