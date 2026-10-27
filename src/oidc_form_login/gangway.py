@@ -2,7 +2,9 @@
 import shlex
 
 try:
-    import pip_system_certs.wrapt_requests  # noqa
+    # For PyInstaller
+    import pip_system_certs.wrapt_requests # noqa
+    pip_system_certs.wrapt_requests.inject_truststore()
 except ImportError:
     pass
 
@@ -33,7 +35,7 @@ def confirm(prompt) -> str:
             return "q"
 
 
-def process_gangway_commandline(r: Response, *, interactive=False, run_all=False):
+def run_kubectl_commands(r: Response, *, interactive=False, run_all=False, verbose=False):
     if not r.ok:
         print(f"Auth failed with status {r.status_code}", file=sys.stderr)
         print(r.text, file=sys.stderr)
@@ -73,13 +75,9 @@ def process_gangway_commandline(r: Response, *, interactive=False, run_all=False
         set_credentials_cmd = []
         for i, line in enumerate(lines):
             if line.startswith("kubectl config set-credentials "):
-                c = "`" if os.name == "nt" else "\\"
-                for next_line in lines[i:]:
-                    set_credentials_cmd.append(next_line)
-                    if not next_line.endswith(c):
-                        break
+                set_credentials_cmd.append(line)
                 break
-        if not set_credentials_cmd:
+        else:
             print("No set-credentials command found", file=sys.stderr)
             if code_blocks:
                 print("\n".join(code_blocks), file=sys.stderr)
@@ -87,8 +85,7 @@ def process_gangway_commandline(r: Response, *, interactive=False, run_all=False
                 print(r.text, file=sys.stderr)
             return False
         lines = set_credentials_cmd
-
-    if not lines:
+    elif not lines:
         print("No kubectl commands found", file=sys.stderr)
         if code_blocks:
             print("\n".join(code_blocks), file=sys.stderr)
@@ -109,7 +106,8 @@ def process_gangway_commandline(r: Response, *, interactive=False, run_all=False
 
     nl = os.linesep
     script = nl.join(lines)
-    print(script)
+    if verbose or interactive:
+        print(script)
 
     if interactive:
         confirmation = confirm("Run commands [Y/n/q]? ")
@@ -120,17 +118,13 @@ def process_gangway_commandline(r: Response, *, interactive=False, run_all=False
 
     if len(lines) == 1:
         args = shlex.split(lines[0])
-        proc = subprocess.run(args)
-        if proc.returncode != 0:
-            print(
-                f"Command exited with status non-zero status: {proc.returncode}",
-                file=sys.stderr,
-            )
-            return False
+        proc = subprocess.run(args, stdout=None if verbose else subprocess.DEVNULL)
+        return_code = proc.returncode
     elif os.name == "nt":
         fd, ps1 = tempfile.mkstemp(suffix=".ps1")
         try:
             try:
+                os.write(fd, "$ErrorActionPreference = 'Stop'\n".encode("latin1"))
                 os.write(fd, "\n".join(lines).encode("latin1"))
             finally:
                 os.close(fd)
@@ -141,31 +135,41 @@ def process_gangway_commandline(r: Response, *, interactive=False, run_all=False
                 "-Command",
                 ps1,
             ]
-            proc = subprocess.run(args)
-            if proc.returncode != 0:
-                print(
-                    f"Command exited with status non-zero status: {proc.returncode}",
-                    file=sys.stderr,
-                )
-                return False
+            proc = subprocess.run(args, stdout=None if verbose else subprocess.DEVNULL)
+            return_code = proc.returncode
 
         finally:
             os.remove(ps1)
 
     else:
-        with subprocess.Popen(
-            args, stdin=subprocess.PIPE, stdout=None, stderr=None
+        return_code = -1
+        with subprocess.Popen(args,
+            stdin=subprocess.PIPE,
+            stdout=None if verbose else subprocess.DEVNULL,
+            stderr=None,
+            encoding="utf-8"
         ) as proc:
-            proc.stdin.write(script.encode("utf-8"))
+            proc.stdin.write("set -e\n" + script)
             proc.communicate()
-            if proc.returncode != 0:
-                print(
-                    f"Command exited with status non-zero status: {proc.returncode}",
-                    file=sys.stderr,
-                )
-                return False
+            return_code = proc.returncode
+
+    if return_code != 0:
+        print(
+            f"Command exited with status non-zero status: {proc.returncode}",
+            file=sys.stderr,
+        )
+        if not (verbose or interactive):
+            for line in lines:
+                print(f"  {line}", file=sys.stderr)
+
+        return False
 
     return True
+
+
+def get_current_context():
+    return subprocess.run(["kubectl", "config", "current-context"],
+                          capture_output=True, text=True, check=True).stdout.strip()
 
 
 def main():
@@ -194,6 +198,11 @@ def main():
     parser.add_argument(
         "-k", "--insecure", default=True, dest="verify", action="store_false"
     )
+    parser.add_argument("-q", "--quiet", action="store_false", dest="verbose",
+                        help="quiet operation")
+    parser.add_argument("-v", "--verbose", action="store_true", dest="verbose",
+                        help="verbose operation")
+    parser.add_argument("--preserve-context", action="store_true", help="preserve current kubectl context")
     parser.add_argument("url", nargs="+")
 
     args = parser.parse_args()
@@ -206,19 +215,28 @@ def main():
         if not args.password:
             args.password = getpass("Password: ")
 
-    for url in args.url:
-        ok, r = login(args.username, args.password, url, verify=args.verify)
-        if ok:
-            if not process_gangway_commandline(
-                r, interactive=args.interactive, run_all=args.all
-            ):
-                parser.exit(1)
-        elif r.ok:
-            print(r.text, file=sys.stderr)
-            parser.exit(1, f"Login stopped at {r.url}")
-        else:
-            print(r.text, file=sys.stderr)
-            parser.exit(1, f"Login failed with status {r.status_code} at {r.url}")
+    if args.preserve_context:
+        original_context = get_current_context()
+    else:
+        original_context = ""
+
+    try:
+        for url in args.url:
+            ok, r = login(args.username, args.password, url, verify=args.verify)
+            if ok:
+                if not run_kubectl_commands(
+                    r, interactive=args.interactive, run_all=args.all, verbose=args.verbose,
+                ):
+                    parser.exit(1)
+            elif r.ok:
+                print(r.text, file=sys.stderr)
+                parser.exit(1, f"Login stopped at {r.url}")
+            else:
+                print(r.text, file=sys.stderr)
+                parser.exit(1, f"Login failed with status {r.status_code} at {r.url}")
+    finally:
+        if original_context and original_context != get_current_context():
+            subprocess.run(["kubectl", "config", "use-context", original_context], check=True)
 
 
 if __name__ == "__main__":
