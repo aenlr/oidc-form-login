@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "oidc-form-login"
-version = "0.1"
+version = "0.2"
 authors = [ { name = "Anders Norlander" } ]
-requires-python = ">=3.8"
+requires-python = ">=3.13"
 description = "Login via forms"
 urls = {}
 classifiers = [
