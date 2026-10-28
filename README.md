@@ -21,6 +21,13 @@ Install globally or in active virtual environment
 
 ## Development
 
+
+Using make to build and package dist/gangway-login
+
+```bash
+make dev dist
+```
+
 ### Create and activate virtual environment
 
 #### Create virtual environment (un*x)
