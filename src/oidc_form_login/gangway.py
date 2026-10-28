@@ -1,23 +1,25 @@
 #!/usr/bin/env python3
-import shlex
-
 try:
     # For PyInstaller
-    import pip_system_certs.wrapt_requests # noqa
+    import pip_system_certs.wrapt_requests  # noqa
     pip_system_certs.wrapt_requests.inject_truststore()
 except ImportError:
     pass
 
 import os
 import re
+import requests
+import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
 
 from bs4 import BeautifulSoup
 from requests import Response
+from urllib.parse import urljoin
 
-from oidc_form_login.login import login
+from oidc_form_login.login import login, parse_content_type
 
 
 def confirm(prompt) -> str:
@@ -144,11 +146,11 @@ def run_kubectl_commands(r: Response, *, interactive=False, run_all=False, verbo
     else:
         return_code = -1
         with subprocess.Popen(args,
-            stdin=subprocess.PIPE,
-            stdout=None if verbose else subprocess.DEVNULL,
-            stderr=None,
-            encoding="utf-8"
-        ) as proc:
+                              stdin=subprocess.PIPE,
+                              stdout=None if verbose else subprocess.DEVNULL,
+                              stderr=None,
+                              encoding="utf-8"
+                              ) as proc:
             proc.stdin.write("set -e\n" + script)
             proc.communicate()
             return_code = proc.returncode
@@ -167,15 +169,54 @@ def run_kubectl_commands(r: Response, *, interactive=False, run_all=False, verbo
     return True
 
 
+def download_kubeconfig(session: requests.Session, url: str, output_file: str, verify=True, verbose=False) -> bool:
+    if verbose:
+        print(f"Downloading kubeconfig from {url}...")
+
+    r = session.get(url, verify=verify)
+    if not r.ok:
+        print(f"Downloading {url} failed with status {r.status_code}: {r.text}", file=sys.stderr)
+        return False
+
+    # Verify that we didn't just download the login page (HTML) instead of the config (YAML)
+    content_type = parse_content_type(r)
+    if "text/html" in content_type or r.text.strip().startswith("<"):
+        print("Downloaded kubeconfig appears to be HTML. Authentication likely failed or redirected.", file=sys.stderr)
+        print(r.text, file=sys.stderr)
+        return False
+
+    if os.path.exists(output_file):
+        backup_file = output_file + ".bak"
+        if verbose:
+            print(f"Backing up existing config to {backup_file}")
+        shutil.copy2(output_file, backup_file)
+    elif output_path := os.path.dirname(output_file):
+        os.makedirs(output_path, exist_ok=True)
+
+    with open(output_file, "wb") as f:
+        f.write(r.content)
+
+    if verbose:
+        print(f"Kubeconfig saved to {output_file}")
+    return True
+
+
 def get_current_context():
-    return subprocess.run(["kubectl", "config", "current-context"],
-                          capture_output=True, text=True, check=True).stdout.strip()
+    r = subprocess.run(["kubectl", "config", "current-context"],
+                          capture_output=True, text=True)
+    if r.returncode != 0:
+        output = r.stderr.strip()
+        if "current-context is not set" not in output:
+            r.check_returncode()
+        return ""
+    return r.stdout.strip()
 
 
 def main():
     from argparse import ArgumentParser
     from getpass import getpass, getuser
 
+    default_kubeconfig = os.environ.get("KUBECONFIG") or "~/.kube/config"
     parser = ArgumentParser()
     parser.add_argument("-u", "--user", "--username", dest="username")
     parser.add_argument("-p", "--pass", "--password", dest="password")
@@ -203,6 +244,11 @@ def main():
     parser.add_argument("-v", "--verbose", action="store_true", dest="verbose",
                         help="verbose operation")
     parser.add_argument("--preserve-context", action="store_true", help="preserve current kubectl context")
+    parser.add_argument("-d", "--download", action="store_true",
+                        help="Download and replace kubeconfig rather than running commands")
+    parser.add_argument("--download-url", dest="download", help="URL to download kubeconfig from")
+    parser.add_argument("-o", "--kubeconfig",
+                        help=f"Kubeconfig(s) to update or replace (default: {default_kubeconfig})")
     parser.add_argument("url", nargs="+")
 
     args = parser.parse_args()
@@ -215,28 +261,42 @@ def main():
         if not args.password:
             args.password = getpass("Password: ")
 
-    if args.preserve_context:
-        original_context = get_current_context()
-    else:
-        original_context = ""
+    kubeconfigs = [os.path.expanduser(f) for f in str(args.kubeconfig or default_kubeconfig).split(os.pathsep)]
+    if args.download and 1 < len(args.url) != len(kubeconfigs):
+        parser.exit(1, f"{len(args.url)} clusters specified, but only {len(kubeconfigs)} kubeconfigs: {kubeconfigs}")
 
-    try:
-        for url in args.url:
-            ok, r = login(args.username, args.password, url, verify=args.verify)
-            if ok:
-                if not run_kubectl_commands(
-                    r, interactive=args.interactive, run_all=args.all, verbose=args.verbose,
-                ):
-                    parser.exit(1)
-            elif r.ok:
-                print(r.text, file=sys.stderr)
-                parser.exit(1, f"Login stopped at {r.url}")
+    for i, url in enumerate(args.url):
+        ok, r, session = login(args.username, args.password, url, verify=args.verify)
+        if ok:
+            kubeconfig = kubeconfigs[0] if len(kubeconfigs) == 1 else kubeconfigs[i]
+            if args.download:
+                if args.download is True:
+                    kubeconf_url = url.rstrip('/') + '/kubeconf'
+                else:
+                    kubeconf_url = urljoin(url, str(args.download))
+                ok = download_kubeconfig(session, kubeconf_url, kubeconfig,
+                                         verify=args.verify, verbose=args.verbose)
             else:
-                print(r.text, file=sys.stderr)
-                parser.exit(1, f"Login failed with status {r.status_code} at {r.url}")
-    finally:
-        if original_context and original_context != get_current_context():
-            subprocess.run(["kubectl", "config", "use-context", original_context], check=True)
+                if args.kubeconfig:
+                    os.environ["KUBECONFIG"] = kubeconfig
+                if args.preserve_context:
+                    original_context = get_current_context()
+                else:
+                    original_context = ""
+                try:
+                    ok = run_kubectl_commands(r, interactive=args.interactive, run_all=args.all, verbose=args.verbose)
+                finally:
+                    if original_context and original_context != get_current_context():
+                        subprocess.run(["kubectl", "config", "use-context", original_context],
+                                       stdout=subprocess.DEVNULL, check=True)
+            if not ok:
+                parser.exit(1)
+        elif r.ok:
+            print(r.text, file=sys.stderr)
+            parser.exit(1, f"Login stopped at {r.url}")
+        else:
+            print(r.text, file=sys.stderr)
+            parser.exit(1, f"Login failed with status {r.status_code} at {r.url}")
 
 
 if __name__ == "__main__":
