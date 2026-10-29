@@ -7,15 +7,13 @@ trim_trailing_whitespace = true
 insert_final_newline = true
 indent_size = 4
 charset = utf-8
+max_line_length = 99
 
 [*.md]
 trim_trailing_whitespace = false
 
-[*.{json,sh,tpl,yaml}]
+[*.yaml]
 indent_size = 2
-
-[*.{sln,csproj,cmd,bat,ps1}]
-end_of_line = crlf
 
 [Makefile]
 indent_style = tab

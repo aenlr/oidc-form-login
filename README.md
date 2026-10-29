@@ -22,11 +22,7 @@ Install globally or in active virtual environment
 ## Development
 
 
-Using make to build and package dist/gangway-login
-
-```bash
-make dev dist
-```
+Using `make dev dist` do everything covered below.
 
 ### Create and activate virtual environment
 
@@ -44,6 +40,7 @@ make dev dist
 
 ### Install dependencies
     (venv) $ pip install -e .[dev]
+    (venv) $ pre-commit install
 
 ### Package executable
 

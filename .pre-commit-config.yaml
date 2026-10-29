@@ -1,0 +1,26 @@
+repos:
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v6.0.0
+  hooks:
+  - id: end-of-file-fixer
+  - id: trailing-whitespace
+    args: [--markdown-linebreak-ext=md]
+- repo: https://github.com/astral-sh/ruff-pre-commit
+  rev: v0.17.3
+  hooks:
+    - id: ruff-check
+    - id: ruff-format
+- repo: local
+  hooks:
+  - id: pylint
+    name: pylint
+    entry: pylint
+    language: python
+    types: [python]
+    stages: [pre-push]
+    require_serial: true
+    args:
+      [
+        "-rn", # Only display messages
+        "-sn", # Don't display the score
+      ]
