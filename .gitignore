@@ -2,16 +2,17 @@
 .idea/
 *.iml
 
-dist/
-venv/
 build/
+dist/
+standalone/
+.venv/
+venv/
 
 .coverage
-.eggs/
-.mypy_cache
-.pytest_cache/
-.pytype
-*.egg-info/
-__pycache__
-
+.*_cache/
+__pycache__/
 *.spec
+
+# Can't check in because it is trampled with wrong URL:s
+# when using a PyPi proxy in Enterprise environments.
+uv.lock

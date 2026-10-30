@@ -122,9 +122,7 @@ def _submit_login_form(
 ) -> Response:
     submit_button = form.find(["input", "button"], {"type": "submit"})
     if not submit_button and form.has_attr("id"):
-        submit_button = soup.find(
-            ["input", "button"], {"form": form["id"], "type": "submit"}
-        )
+        submit_button = soup.find(["input", "button"], {"form": form["id"], "type": "submit"})
     if submit_button and not submit_button.has_attr("name"):
         submit_button = None
 
@@ -188,9 +186,7 @@ def _process_forms(
         fields.extend(form.find_all("button", {"type": "submit"}))
         if form.has_attr("id"):
             fields.extend(soup.find_all(["input", "textarea"], {"form": form["id"]}))
-            fields.extend(
-                soup.find_all("button", {"type": "submit", "form": form["id"]})
-            )
+            fields.extend(soup.find_all("button", {"type": "submit", "form": form["id"]}))
 
         fields = [f for f in fields if f.has_attr("name")]
         text_inputs = [f for f in fields if _is_input_type_text(f)]
@@ -199,34 +195,20 @@ def _process_forms(
         if username_field:
             uf = next((f for f in text_inputs if f.get("name") == username_field), None)
             if not uf:
-                uf = next(
-                    (f for f in text_inputs if f.get("id") == username_field), None
-                )
+                uf = next((f for f in text_inputs if f.get("id") == username_field), None)
         else:
-            uf = next(
-                (f for f in text_inputs if _is_input_autocomplete_username(f)), None
-            )
+            uf = next((f for f in text_inputs if _is_input_autocomplete_username(f)), None)
             if not uf:
-                uf = next(
-                    (f for f in text_inputs if _is_input_possibly_username(f)), None
-                )
+                uf = next((f for f in text_inputs if _is_input_possibly_username(f)), None)
 
         if password_field:
-            pf = next(
-                (f for f in password_inputs if f.get("name") == password_field), None
-            )
+            pf = next((f for f in password_inputs if f.get("name") == password_field), None)
             if not pf:
-                pf = next(
-                    (f for f in password_inputs if f.get("id") == password_field), None
-                )
+                pf = next((f for f in password_inputs if f.get("id") == password_field), None)
         else:
-            pf = next(
-                (f for f in password_inputs if _is_input_autocomplete_password(f)), None
-            )
+            pf = next((f for f in password_inputs if _is_input_autocomplete_password(f)), None)
             if not pf:
-                pf = next(
-                    (f for f in password_inputs if _is_input_possibly_password(f)), None
-                )
+                pf = next((f for f in password_inputs if _is_input_possibly_password(f)), None)
 
         if not (uf and pf) and len(forms) == 1:
             if not uf and len(text_inputs) == 1:
@@ -339,9 +321,7 @@ def login(
             url = urljoin(url, r.headers["location"])
             redirect_url = urllib3.util.parse_url(url)
 
-            redirect_params = {
-                k: v[0] for k, v in parse_qs(redirect_url.query or "").items()
-            }
+            redirect_params = {k: v[0] for k, v in parse_qs(redirect_url.query or "").items()}
             redirect_path = url_no_query(redirect_url)
             if not auth_url and all(
                 p in redirect_params for p in ("redirect_uri", "client_id", "scope")
@@ -350,11 +330,7 @@ def login(
                 authorization_endpoint = redirect_path
                 auth_params.update(redirect_params)
             if redirect_path == auth_params.get("redirect_uri") and (
-                (
-                    "code" in redirect_params
-                    and token_endpoint
-                    and "client_secret" in auth_params
-                )
+                ("code" in redirect_params and token_endpoint and "client_secret" in auth_params)
                 or any(p in redirect_params for p in ("token", "id_token"))
             ):
                 # pylint: disable=W0511
@@ -418,19 +394,13 @@ def main():
     parser.add_argument("--client-secret")
     parser.add_argument("-u", "--user", "--username", dest="username")
     parser.add_argument("-p", "--pass", "--password", dest="password")
-    parser.add_argument(
-        "--username-field", help="name of username input field in login form"
-    )
-    parser.add_argument(
-        "--password-field", help="name of password input field in login form"
-    )
+    parser.add_argument("--username-field", help="name of username input field in login form")
+    parser.add_argument("--password-field", help="name of password input field in login form")
     parser.add_argument("--authorization-endpoint")
     parser.add_argument("--redirect-uri")
     parser.add_argument("--token-endpoint")
     parser.add_argument("--scope", action="append")
-    parser.add_argument(
-        "-k", "--insecure", default=True, dest="verify", action="store_false"
-    )
+    parser.add_argument("-k", "--insecure", default=True, dest="verify", action="store_false")
     parser.add_argument("url", nargs="?")
 
     args = parser.parse_args()
@@ -438,9 +408,7 @@ def main():
 
     auth_params = {}
     if args.scope:
-        auth_params["scope"] = " ".join(
-            s for e in args.scope for s in re.split("[ ,]*", e)
-        )
+        auth_params["scope"] = " ".join(s for e in args.scope for s in re.split("[ ,]*", e))
     if args.client_id:
         auth_params["client_id"] = args.client_id
     if args.client_secret:

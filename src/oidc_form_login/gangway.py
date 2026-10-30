@@ -65,9 +65,7 @@ def _join_continuation_lines(code_blocks: list[str]) -> list[str]:
                     continuation.append(stripped)
                 else:
                     continuation.append(stripped.rstrip())
-                    continuation = [
-                        c.rstrip("\\").strip() for i, c in enumerate(continuation)
-                    ]
+                    continuation = [c.rstrip("\\").strip() for i, c in enumerate(continuation)]
                     lines.append(" ".join(continuation))
                     continuation.clear()
             else:
@@ -126,9 +124,7 @@ def _run_ps1_script(script: str, verbose=True) -> int:
             "-Command",
             ps1,
         ]
-        proc = subprocess.run(
-            args, stdout=None if verbose else subprocess.DEVNULL, check=False
-        )
+        proc = subprocess.run(args, stdout=None if verbose else subprocess.DEVNULL, check=False)
     finally:
         os.remove(ps1)
 
@@ -161,9 +157,7 @@ def _fix_ps1_redirections(lines: list[str]):
             lines[i] = f"{pem} | Out-File {m[2]} -Encoding ascii"
 
 
-def run_kubectl_commands(
-    r: Response, *, interactive=False, run_all=False, verbose=False
-):
+def run_kubectl_commands(r: Response, *, interactive=False, run_all=False, verbose=False):
     """Run kubectl commands from gangway post login page.
 
     :param r: gangway response after successful authentication
@@ -180,9 +174,7 @@ def run_kubectl_commands(
         return False
 
     if not run_all:
-        set_creds = [
-            line for line in lines if line.startswith("kubectl config set-credentials ")
-        ]
+        set_creds = [line for line in lines if line.startswith("kubectl config set-credentials ")]
         if not set_creds:
             _print_no_commands("No set-credentials command found", r, code_blocks)
             return False
@@ -350,17 +342,13 @@ def main():
         action="store_true",
         help="confirm commands to run",
     )
-    parser.add_argument(
-        "-y", "--non-interactive", dest="interactive", action="store_false"
-    )
+    parser.add_argument("-y", "--non-interactive", dest="interactive", action="store_false")
     parser.add_argument(
         "--all",
         action="store_true",
         help="run all gangway commands (not only kubectl config set-credentials)",
     )
-    parser.add_argument(
-        "-k", "--insecure", default=True, dest="verify", action="store_false"
-    )
+    parser.add_argument("-k", "--insecure", default=True, dest="verify", action="store_false")
     parser.add_argument(
         "-q", "--quiet", action="store_false", dest="verbose", help="quiet operation"
     )
@@ -378,9 +366,7 @@ def main():
         action="store_true",
         help="Download and replace kubeconfig rather than running commands",
     )
-    parser.add_argument(
-        "--download-url", dest="download", help="URL to download kubeconfig from"
-    )
+    parser.add_argument("--download-url", dest="download", help="URL to download kubeconfig from")
     parser.add_argument(
         "-o",
         "--kubeconfig",

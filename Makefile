@@ -1,49 +1,61 @@
+export PATH := $(PWD)/.venv/bin:$(PWD)/.venv/Scripts:$(PATH)
+
+# Override python version when not using uv (i.e make PYTHON3=python3.8)
 PYTHON3 = python3.13
-export PATH := $(PWD)/venv/bin:$(PWD)/venv/Scripts:$(PATH)
 
-all: dev check dist
+all: check dist standalone
+dev: venv hooks
 
-venv:
-	echo "venv: $$PATH"
-	$(PYTHON3) -m venv venv
+dist: .venv pyproject.toml src/oidc_form_login/*.py
+	@if ! uv build --wheel; then \
+		pip wheel --no-deps -w dist . ; \
+	fi
 
-dev: venv
-	echo "PATH=$$PATH"
-	python -m pip install --upgrade pip
-	pip install -e .[dev]
-	pre-commit install
+venv: .venv
+.venv:
+	@uv venv --allow-existing || $(PYTHON3) -m venv --prompt venv .venv
+	@if ! uv sync --extra dev; then \
+		python -m pip install --upgrade pip; \
+		pip install -e .[dev]; \
+	fi
+
+
+hooks: .git/hooks/pre-commit
+.git/hooks/pre-commit: .venv
+	@pre-commit install
 
 check: test typecheck
 typecheck: mypy
 lint: ruff-check
 
-dist: dist/gangway-login dist/oidc-form-login
-dist/oidc-form-login: src/oidc_form_login/login.py src/oidc_form_login/__init__.py
-	pyinstaller --name oidc-form-login --onefile src/oidc_form_login/login.py
-dist/gangway-login: src/oidc_form_login/*.py
-	pyinstaller --name gangway-login --onefile src/oidc_form_login/gangway.py
+PYINSTALLER_ARGS = --distpath standalone
+standalone: standalone/gangway-login standalone/oidc-form-login
+standalone/oidc-form-login: src/oidc_form_login/login.py src/oidc_form_login/__init__.py .venv
+	pyinstaller $(PYINSTALLER_ARGS) --name oidc-form-login --onefile src/oidc_form_login/login.py
+standalone/gangway-login: src/oidc_form_login/*.py .venv
+	pyinstaller $(PYINSTALLER_ARGS) --name gangway-login --onefile src/oidc_form_login/gangway.py
 
-test:
+test: .venv src/oidc_form_login/*.py #src/tests/*.py
 	pytest
 
-format:
+format: .venv
 	ruff format
-#black src
 
-mypy:
+mypy: .venv
 	mypy src
 
-ruff-check:
+ruff-check: .venv
 	ruff check --fix
 
-ruff-check-unsafe:
+ruff-check-unsafe: .venv
 	ruff check --fix --unsafe-fixes
 	ruff format
 
-pylint:
+pylint: .venv
 	pylint src
 
 clean:
-	rm -rf dist build src/*.egg-info *.spec
+	rm -rf dist standalone standalone-build src/*.egg-info src/oidc_form_login/__pycache__
+
 distclean: clean
-	rm -rf venv
+	rm -rf .venv uv.lock
