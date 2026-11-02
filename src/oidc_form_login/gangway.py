@@ -18,13 +18,26 @@ import sys
 import tempfile
 from argparse import ArgumentParser, Namespace
 from collections.abc import Iterable
+from typing import Never
 from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
 from requests import Response
 
-from oidc_form_login.login import login, parse_content_type, request_user_and_password
+from oidc_form_login.login import (
+    AuthRequest,
+    LoginError,
+    login,
+    parse_content_type,
+    request_user_and_password,
+)
+
+
+class GangwayError(Exception):
+    def __init__(self, msg: str, text: str | None = None) -> None:
+        super().__init__(msg)
+        self.text = text
 
 
 def confirm(prompt, default="y") -> str:
@@ -131,16 +144,16 @@ def _run_ps1_script(script: str, verbose=True) -> int:
     return proc.returncode
 
 
-def _print_no_commands(message: str, r: Response, code_blocks: list[str]):
+def _raise_no_commands_error(message: str, r: Response, code_blocks: list[str]) -> Never:
     """Print an error message followed by gangway response.
 
     Print code blocks if any, otherwise print full gangway response page.
     """
-    print(message, file=sys.stderr)
     if code_blocks:
-        print("\n".join(code_blocks), file=sys.stderr)
+        text = "\n".join(code_blocks)
     else:
-        print(r.text, file=sys.stderr)
+        text = r.text
+    raise GangwayError(message, text)
 
 
 def _fix_ps1_redirections(lines: list[str]):
@@ -157,7 +170,7 @@ def _fix_ps1_redirections(lines: list[str]):
             lines[i] = f"{pem} | Out-File {m[2]} -Encoding ascii"
 
 
-def run_kubectl_commands(r: Response, *, interactive=False, run_all=False, verbose=False):
+def run_kubectl_commands(r: Response, *, interactive=False, run_all=False, verbose=False) -> bool:
     """Run kubectl commands from gangway post login page.
 
     :param r: gangway response after successful authentication
@@ -170,14 +183,12 @@ def run_kubectl_commands(r: Response, *, interactive=False, run_all=False, verbo
     code_blocks = _gather_code_blocks(r.text)
     lines = _join_continuation_lines(code_blocks)
     if not lines:
-        _print_no_commands("No kubectl commands found", r, code_blocks)
-        return False
+        _raise_no_commands_error("No kubectl commands found", r, code_blocks)
 
     if not run_all:
         set_creds = [line for line in lines if line.startswith("kubectl config set-credentials ")]
         if not set_creds:
-            _print_no_commands("No set-credentials command found", r, code_blocks)
-            return False
+            _raise_no_commands_error("No set-credentials command found", r, code_blocks)
         lines = set_creds
 
     if os.name == "nt":
@@ -207,22 +218,19 @@ def run_kubectl_commands(r: Response, *, interactive=False, run_all=False, verbo
         ret = _run_sh_script(script, verbose)
 
     if ret != 0:
-        print(
-            f"Command exited with status non-zero status: {ret}",
-            file=sys.stderr,
-        )
+        indented_error = ()  # type: Iterable[str]
         if not (verbose or interactive):
-            for line in lines:
-                print(f"  {line}", file=sys.stderr)
-
-        return False
+            indented_error = (f"  {line}" for line in lines)
+        raise GangwayError(
+            f"Command exited with status non-zero status: {ret}", "\n".join(indented_error)
+        )
 
     return True
 
 
 def download_kubeconfig(
     session: requests.Session, url: str, output_file: str, verify=True, verbose=False
-) -> bool:
+):
     """Download kubeconfig after successful gangway authentication.
 
     A backup of output_file is created if it already exists.
@@ -238,21 +246,15 @@ def download_kubeconfig(
 
     r = session.get(url, verify=verify)
     if not r.ok:
-        print(
-            f"Downloading {url} failed with status {r.status_code}: {r.text}",
-            file=sys.stderr,
-        )
-        return False
+        raise GangwayError(f"Error downloading {url}", r.text)
 
     # Verify that we didn't just download the login page (HTML) instead of the config (YAML)
     content_type = parse_content_type(r)
     if "text/html" in content_type or r.text.strip().startswith("<"):
-        print(
+        raise GangwayError(
             "Downloaded kubeconfig appears to be HTML. Authentication likely failed or redirected.",
-            file=sys.stderr,
+            r.text,
         )
-        print(r.text, file=sys.stderr)
-        return False
 
     if os.path.exists(output_file):
         backup_file = output_file + ".bak"
@@ -267,7 +269,6 @@ def download_kubeconfig(
 
     if verbose:
         print(f"Kubeconfig saved to {output_file}")
-    return True
 
 
 def get_current_context():
@@ -377,53 +378,71 @@ def main():
 
     args = parser.parse_args()
     kubeconfigs = _validate_kubeconfigs(parser, args)
-    request_user_and_password(args)
+
+    def username_provider() -> str:
+        request_user_and_password(args)
+        return args.username
+
+    def password_provider() -> str:
+        request_user_and_password(args)
+        return args.password
 
     for i, url in enumerate(args.url):
-        ok, r, session = login(args.username, args.password, url, verify=args.verify)
-        if not ok:
-            if r.ok:
-                print(r.text, file=sys.stderr)
-                parser.exit(1, f"Login stopped at {r.url}")
-            else:
-                print(r.text, file=sys.stderr)
-                parser.exit(1, f"Login failed with status {r.status_code} at {r.url}")
-
-        kubeconfig = kubeconfigs[0] if len(kubeconfigs) == 1 else kubeconfigs[i]
-        if args.download:
-            if args.download is True:
-                kubeconf_url = url.rstrip("/") + "/kubeconf"
-            else:
-                kubeconf_url = urljoin(url, str(args.download))
-            ok = download_kubeconfig(
-                session,
-                kubeconf_url,
-                kubeconfig,
-                verify=args.verify,
-                verbose=args.verbose,
-            )
-        else:
-            if args.kubeconfig:
-                os.environ["KUBECONFIG"] = kubeconfig
-            if args.preserve_context:
-                original_context = get_current_context()
-            else:
-                original_context = ""
-            try:
-                ok = run_kubectl_commands(
-                    r,
-                    interactive=args.interactive,
-                    run_all=args.all,
-                    verbose=args.verbose,
-                )
-            finally:
-                if original_context and original_context != get_current_context():
-                    subprocess.run(
-                        ["kubectl", "config", "use-context", original_context],
-                        stdout=subprocess.DEVNULL,
-                        check=True,
+        req = AuthRequest(
+            url=url,
+            username=username_provider,
+            password=password_provider,
+            verify=args.verify,
+        )
+        try:
+            with login(req) as res:
+                kubeconfig = kubeconfigs[0] if len(kubeconfigs) == 1 else kubeconfigs[i]
+                if args.download:
+                    if args.download is True:
+                        kubeconf_url = url.rstrip("/") + "/kubeconf"
+                    else:
+                        kubeconf_url = urljoin(url, str(args.download))
+                    download_kubeconfig(
+                        res.session,
+                        kubeconf_url,
+                        kubeconfig,
+                        verify=args.verify,
+                        verbose=args.verbose,
                     )
-        if not ok:
+                else:
+                    if args.kubeconfig:
+                        os.environ["KUBECONFIG"] = kubeconfig
+                    if args.preserve_context:
+                        original_context = get_current_context()
+                    else:
+                        original_context = ""
+                    try:
+                        more = run_kubectl_commands(
+                            res.response,
+                            interactive=args.interactive,
+                            run_all=args.all,
+                            verbose=args.verbose,
+                        )
+                        if not more:
+                            # User quit
+                            break
+                    finally:
+                        if original_context and original_context != get_current_context():
+                            subprocess.run(
+                                ["kubectl", "config", "use-context", original_context],
+                                stdout=subprocess.DEVNULL,
+                                check=True,
+                            )
+
+        except LoginError as e:
+            print(str(e), file=sys.stderr)
+            if e.result.response is not None and e.result.response.text:
+                print(e.result.response.text, file=sys.stderr)
+            parser.exit(1)
+        except GangwayError as e:
+            print(str(e), file=sys.stderr)
+            if e.text:
+                print(e.text, file=sys.stderr)
             parser.exit(1)
 
 

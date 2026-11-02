@@ -55,7 +55,7 @@ pylint: .venv
 	pylint src
 
 clean:
-	rm -rf dist standalone standalone-build src/*.egg-info src/oidc_form_login/__pycache__
+	rm -rf dist standalone standalone-build src/*.egg-info src/oidc_form_login/__pycache__ .*_cache
 
 distclean: clean
 	rm -rf .venv uv.lock
