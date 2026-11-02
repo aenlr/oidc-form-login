@@ -31,6 +31,8 @@ from urllib3.util.url import Url
 
 
 class AuthResultMode(StrEnum):
+    """When to consider authentication finished."""
+
     LAST = auto()
     """Stop when there are no more navigations."""
 
@@ -50,7 +52,10 @@ CredentialProvider = Callable[[], str]
 
 @dataclass
 class AuthRequest:
+    """Authentication request settings."""
+
     mode: AuthResultMode = AuthResultMode.POST_REDIRECT_URI
+    """Authentication result to return."""
 
     verify: bool = True
     """TLS verification is disabled if False"""
@@ -100,6 +105,8 @@ class AuthRequest:
 
 @dataclass
 class NavHistory:
+    """Authentication request history"""
+
     url: str
     method: str
     request_headers: dict[str, str] = field(default_factory=dict)
@@ -111,6 +118,8 @@ class NavHistory:
 
 @dataclass
 class FormSubmission:
+    """Form submission data."""
+
     action: str
     enctype: str
     method: str
@@ -121,6 +130,8 @@ class FormSubmission:
 
 @dataclass
 class AuthResult:
+    """Authentication result."""
+
     session: Session
     """Request session including cookies"""
     response: Response | None
@@ -242,6 +253,7 @@ def _prepare_submit_form(
     soup: BeautifulSoup,
     form: bs4.Tag,
     fields: list[bs4.Tag],
+    *,
     username_field: bs4.Tag | None = None,
     password_field: bs4.Tag | None = None,
     otp_field: bs4.Tag | None = None,
@@ -587,26 +599,26 @@ def _normalize_start_url(req: AuthRequest) -> tuple[str, Url | None]:
             req.authorization_endpoint = req.url
             req.url = None
 
-    if not req.url:
-        if not req.authorization_endpoint:
-            raise ValueError("URL or authorization endpoint is required")
-        start_url = parse_url(req.authorization_endpoint)
-        query = start_url.query or ""
-
-        if "response_type" not in req.params:
-            req.params["response_type"] = "code"
-
-        if "scope" not in req.params:
-            req.params["scope"] = "openid profile email"
-
-        for k, v in req.params.items():
-            query = replace_query_param(query, k, v, encode=k not in ("state", "nonce"))
-
-        start_url = start_url._replace(query=query)
-        auth_url = start_url
-        return str(start_url), auth_url
-    else:
+    if req.url:
         return req.url, None
+
+    if not req.authorization_endpoint:
+        raise ValueError("URL or authorization endpoint is required")
+    start_url = parse_url(req.authorization_endpoint)
+    query = start_url.query or ""
+
+    if "response_type" not in req.params:
+        req.params["response_type"] = "code"
+
+    if "scope" not in req.params:
+        req.params["scope"] = "openid profile email"
+
+    for k, v in req.params.items():
+        query = replace_query_param(query, k, v, encode=k not in ("state", "nonce"))
+
+    start_url = start_url._replace(query=query)
+    auth_url = start_url
+    return str(start_url), auth_url
 
 
 def _is_auth_request_params(params: dict[str, str]) -> bool:
@@ -686,12 +698,11 @@ def _check_auth_response(
         r = res.session.post(req.token_endpoint, token_request, headers=headers)
         res.response = r
         res.token_response = r.json()
-        if not r.ok:
-            if "error" in res.token_response:
-                raise LoginError(f"Token request error: {res.token_response['error']}", res)
-            else:
-                raise LoginError(f"Token request error: {r.status_code}", res)
-        return True
+        if r.ok:
+            return True
+        if "error" in res.token_response:
+            raise LoginError(f"Token request error: {res.token_response['error']}", res)
+        raise LoginError(f"Token request error: {r.status_code}", res)
 
     if req.mode == AuthResultMode.TOKEN_RESPONSE:
         if not res.token_response:
@@ -935,13 +946,13 @@ def request_otp(args: Namespace) -> str:
 def _print_token_response(r: AuthResult, file=sys.stdout):
     print("Token response:")
     for k, v in r.token_response.items():
-        print(f"- {k}={v}")
+        print(f"- {k}={v}", file=file)
 
 
 def _print_auth_response(r: AuthResult, file=sys.stdout):
     print("Authorization response:")
     for k, v in r.auth_response.items():
-        print(f"- {k}={v}")
+        print(f"- {k}={v}", file=file)
 
 
 def _print_result(r: AuthResult, file=sys.stdout):

@@ -18,7 +18,7 @@ import sys
 import tempfile
 from argparse import ArgumentParser, Namespace
 from collections.abc import Iterable
-from typing import Never
+from typing import Never, cast
 from urllib.parse import urljoin
 
 import requests
@@ -35,6 +35,8 @@ from oidc_form_login.login import (
 
 
 class GangwayError(Exception):
+    """Error in gangway result processing."""
+
     def __init__(self, msg: str, text: str | None = None) -> None:
         super().__init__(msg)
         self.text = text
@@ -418,7 +420,7 @@ def main():
                         original_context = ""
                     try:
                         more = run_kubectl_commands(
-                            res.response,
+                            cast(Response, res.response),
                             interactive=args.interactive,
                             run_all=args.all,
                             verbose=args.verbose,
