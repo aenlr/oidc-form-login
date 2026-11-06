@@ -11,12 +11,14 @@ classifiers = [
 ]
 dependencies = [
     "beautifulsoup4",
+    "keyring>=25.7.0",
     "pip_system_certs",
     "requests",
+    "secretstorage>=3.5.0",
     "urllib3>=2.8.0",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "coverage[toml]",
     "mypy",

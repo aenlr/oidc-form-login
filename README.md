@@ -2,8 +2,66 @@
 
 Utility that attempts to login via an OIDC username/password form.
 
+## Tools
+
+### gangway-login
+
 Comes with a [Gangway](https://github.com/vmware-archive/gangway) integration to
 automate updating kubernetes user credentials from the command line.
+
+Authenticate for the first time, creating kubectl contexts
+```bash
+gangway-login --all https://gangway.example.com/
+```
+
+Leave out `--all` to re-authenticate and only update credentials
+```bash
+gangway-login https://gangway.example.com/
+```
+
+Specify multiple clusters to authenticate using multiple credentials.
+```bash
+gangway-login \
+  https://gangway.cluster1.example.com/ \
+  https://gangway.cluster2.example.com/
+```
+
+Add `--single-credential` to login with the same user and password for all clusters
+```bash
+gangway-login --single-credential \
+  https://gangway.cluster1.example.com/ \
+  https://gangway.cluster2.example.com/
+```
+
+Pass credentials through environment variables (ignores keyring)
+```bash
+#export OIDC_USERNAME=my-username
+#export OIDC_PASSWORD=sekret
+gangway-login https://gangway.example.com/
+```
+
+With `-d` gangway-login downloads and fully replaces kubeconfig rather patching
+```bash
+gangway-login -d --kubeconfig ~/.kube/example.conf https://gangway.example.com/
+```
+
+### oidc-form-login
+
+Mostly a tool for testing the library.
+
+```bash
+oidc-form-login --user myuser --pass - \
+  --click-before '#login' --username-field 'uname' --password-field '#pword' \
+  https://example.com/login
+```
+
+### Keyring
+
+By default, the tools will try to access the keyring of the system to safely store
+credentials.
+
+Supports Secret Service and KWallet on Linux, Keychain on macOS and
+Windows Credential Locker on Windows.
 
 ## Install
 

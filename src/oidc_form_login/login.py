@@ -23,8 +23,11 @@ from typing import Any, Self, cast
 from urllib.parse import parse_qs, urljoin
 
 import bs4
+import keyring
 import requests
 from bs4 import BeautifulSoup
+from keyring.credentials import SimpleCredential
+from keyring.errors import InitError, NoKeyringError
 from requests import Response, Session
 from urllib3.util import parse_url
 from urllib3.util.url import Url
@@ -47,7 +50,7 @@ class AuthResultMode(StrEnum):
        request and return the token response directly"""
 
 
-CredentialProvider = Callable[[], str]
+CredentialProvider = Callable[[str], str | None]
 
 
 @dataclass
@@ -135,6 +138,8 @@ class AuthResult:
     session: Session
     """Request session including cookies"""
     response: Response | None
+    """Authorization request"""
+    auth_request: dict[str, str] = field(default_factory=dict)
     """Last response processed"""
     auth_response: dict[str, str] = field(default_factory=dict)
     """Parameters provided to redirect uri if any"""
@@ -149,6 +154,10 @@ class AuthResult:
 
     def __exit__(self, *args: object) -> None:
         self.session.close()
+
+
+class CredentialMissing(Exception):
+    """Credential missing."""
 
 
 class LoginError(Exception):
@@ -282,7 +291,8 @@ def _prepare_submit_form(
     else:
         method = str(form["method"]).upper() if form.has_attr("method") else "GET"
 
-    action = urljoin(url_no_query(url), action)
+    baseurl = url_no_query(url)
+    action = urljoin(baseurl, action)
     payload = {}
     for f in fields:
         if not f.has_attr("name"):
@@ -294,18 +304,18 @@ def _prepare_submit_form(
         if f == username_field and req.username is not None:
             if isinstance(req.username, str):
                 payload[name] = req.username
-            else:
-                payload[name] = req.username()
+            elif username := req.username(baseurl):
+                payload[name] = username
         elif f == password_field and req.password is not None:
             if isinstance(req.password, str):
                 payload[name] = req.password
-            else:
-                payload[name] = req.password()
+            elif password := req.password(baseurl):
+                payload[name] = password
         elif f == otp_field and req.otp is not None:
             if isinstance(req.otp, str):
                 payload[name] = req.otp
-            else:
-                payload[name] = req.otp()
+            elif otp := req.otp(baseurl):
+                payload[name] = otp
         elif f == submit_button:
             if cast(str, f.get("type", "submit")).lower() == "submit":
                 payload[name] = cast(str, f.get("value", f.get_text()))
@@ -826,7 +836,8 @@ def login(req: AuthRequest) -> AuthResult:
                 auth_requested = True
                 auth_url = target
                 req.authorization_endpoint = path
-                req.params.update(params)
+                req.params = dict(params)
+                res.auth_request = req.params
 
         r = _get_with_history(res, url)
         while True:
@@ -901,7 +912,39 @@ def login(req: AuthRequest) -> AuthResult:
     return res
 
 
-def request_user_and_password(args: Namespace):
+def prompt_username(username: str | None = None) -> str:
+    """Prompt for username."""
+    if username is None:
+        try:
+            username = getuser()
+        except OSError:
+            pass
+
+    try:
+        prompt = f"Username ({username}): " if username else "Username: "
+        print(prompt, flush=True, end="")
+        resolved_username = sys.stdin.readline().strip()
+        if resolved_username:
+            return resolved_username
+        if username:
+            return username
+
+        raise CredentialMissing("No username provided")
+    except EOFError as e:
+        raise CredentialMissing("EOF") from e
+
+
+def prompt_stdin_password(args: Namespace):
+    """Prompt for password if - is set."""
+    if args.password == "-":
+        if sys.stdin.isatty():
+            args.password = getpass("Password: ")
+        else:
+            print("Password: ", end="", flush=True)
+            args.password = sys.stdin.readline().rstrip()
+
+
+def user_and_pass(args: Namespace, url: str = "") -> tuple[str | None, str | None]:
     """Set/request username and password properties.
 
     If username and/or password are not set they are filled in
@@ -911,21 +954,78 @@ def request_user_and_password(args: Namespace):
     or by environment variable.
 
     :param args: Result of ArgumentParser.parse_args(). Modified in place.
+    :param url: url for which to save/read credentials
     """
-    username_entered = False
-    if not args.username:
-        args.username = os.environ.get("OIDC_USERNAME")
-        if not args.username:
+    usr = args.username
+    psw = args.password
+    if psw:
+        # Explicit user credentials have priority over everything else
+        if not usr:
             try:
-                args.username = getuser()
+                usr = getuser()
             except OSError:
-                args.username = sys.stdin.readline().strip()
-                username_entered = True
-    if not args.password:
-        args.password = os.environ.get("OIDC_PASSWORD")
-        if not args.password:
-            prompt = "Password: " if username_entered else f"Password ({args.username}): "
-            args.password = getpass(prompt)
+                usr = prompt_username("")
+            args.username = usr
+        return usr, psw
+
+    single_credential = getattr(args, "single_credential", False)
+    cached = getattr(args, "credential", None)  # type: keyring.credentials.Credential | None
+    if cached and (single_credential or url == args.credential_url):
+        # Reuse already resolved credentials if it is for the same URL
+        return cached.username, cached.password
+
+    use_keyring = url and args.keyring
+    if use_keyring:
+        try:
+            keyring.get_keyring()
+        except (InitError, NoKeyringError):
+            args.keyring = False
+            use_keyring = False
+
+    args.credential_url = url
+    if use_keyring and usr:
+        cred = keyring.get_credential(url, usr)
+        if cred:
+            args.credential = cred
+            return cred.username, cred.password
+
+    prompted_user = False
+    printed_url = False
+    if usr is None:
+        if use_keyring:
+            cred = keyring.get_credential(url, None)
+            if cred:
+                args.credential = cred
+                return cred.username, cred.password
+
+        if len(args.url) > 1 and not single_credential:
+            printed_url = True
+            print(f"Authenticating at {url}")
+            # Reuse last username as default.
+            prompted_user = True
+            usr = prompt_username(cached.username if cached else None)
+        else:
+            # Single url/credential and no explicit username. Use system username.
+            try:
+                usr = getuser()
+            except OSError:
+                prompted_user = True
+                usr = prompt_username()
+
+    if len(args.url) > 1 and not printed_url:
+        print(f"Authenticating at {url}", flush=True)
+
+    # Ask user for password and store it.
+    if cached and cached.username == usr:
+        psw = getpass("Password (****): ")
+    else:
+        psw = getpass("Password: " if prompted_user else f"Password ({usr}): ")
+
+    if use_keyring:
+        keyring.set_password(url, usr, psw)
+
+    args.credential = SimpleCredential(usr, psw)
+    return usr, psw
 
 
 def request_otp(args: Namespace) -> str:
@@ -937,27 +1037,39 @@ def request_otp(args: Namespace) -> str:
     :param args: Result of ArgumentParser.parse_args(). Modified in place.
     """
     if not args.otp:
-        args.otp = os.environ.get("OIDC_OTP")
-        if args.otp is None:
-            args.otp = sys.stdin.readline().strip()
+        print("OTP: ", flush=True, end="")
+        args.otp = sys.stdin.readline().strip()
     return args.otp
+
+
+def _print_dict(d: dict[str, str], file=sys.stdout):
+    for k, v in d.items():
+        print(f"- {k}={v}", file=file)
 
 
 def _print_token_response(r: AuthResult, file=sys.stdout):
     print("Token response:")
-    for k, v in r.token_response.items():
-        print(f"- {k}={v}", file=file)
+    _print_dict(r.token_response, file)
+
+
+def _print_auth_request(r: AuthResult, file=sys.stdout):
+    print("Authorization request:")
+    _print_dict(r.auth_request, file)
 
 
 def _print_auth_response(r: AuthResult, file=sys.stdout):
     print("Authorization response:")
-    for k, v in r.auth_response.items():
-        print(f"- {k}={v}", file=file)
+    _print_dict(r.auth_response, file)
 
 
 def _print_result(r: AuthResult, file=sys.stdout):
     sep = ""
+    if r.auth_request:
+        _print_auth_request(r, file)
+        sep = "\n"
+
     if r.auth_response and (not r.token_response or "code" in r.auth_response):
+        print(sep, end="", file=file)
         _print_auth_response(r, file)
         sep = "\n"
 
@@ -981,29 +1093,108 @@ def _print_result(r: AuthResult, file=sys.stdout):
                         else:
                             print(f"  {k}={v}", file=file)
                 else:
-                    print(f"\n> {h.data}", file=file)
+                    print(f"\n  {h.data}", file=file)
             print(f"< HTTP {h.status}", file=file)
             if h.response_headers:
                 for k, v in h.response_headers.items():
                     print(f"< {k}: {v}", file=file)
-            sep = "\n"
+            sep = "\n\n"
 
     if r.response is not None and r.response.text:
-        print(sep, end="", file=file)
-        print(f"{r.response.url}:", file=file)
+        if r.history:
+            print(file=file)
+        else:
+            print(sep, end="", file=file)
+            print(f"{r.response.url}:", file=file)
         print(r.response.text, file=file)
+
+
+def common_args() -> ArgumentParser:
+    parser = ArgumentParser(add_help=False)
+    parser.add_argument(
+        "-q", "--quiet", action="store_false", dest="verbose", help="print nothing unless needed"
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", dest="verbose", help="verbose operation"
+    )
+    parser.add_argument(
+        "-i",
+        "--interactive",
+        dest="interactive",
+        default=True,
+        action="store_true",
+        help="confirm command execution",
+    )
+    parser.add_argument(
+        "-u",
+        "--username",
+        metavar="USER",
+        dest="username",
+        default=os.environ.get("OIDC_USERNAME"),
+        help="username (env: OIDC_USERNAME)",
+    )
+    parser.add_argument(
+        "-p",
+        "--password",
+        metavar="PASS",
+        dest="password",
+        default=os.environ.get("OIDC_PASSWORD"),
+        help="password (env: OIDC_PASSWORD)",
+    )
+    parser.add_argument(
+        "--no-keyring",
+        dest="keyring",
+        default=os.environ.get("OIDC_KEYRING") in ("true", "1", None),
+        action="store_false",
+        help="do not store credentials (env: OIDC_KEYRING)",
+    )
+    parser.add_argument(
+        "-k",
+        "--insecure",
+        default=True,
+        dest="verify",
+        action="store_false",
+        help="skip TLS host verification",
+    )
+
+    return parser
+
+
+def username_provider(args: Namespace):
+    """Return a function that returns the username for a URL."""
+
+    def username(u: str):
+        return user_and_pass(args, u)[0]
+
+    return username
+
+
+def password_provider(args: Namespace):
+    """Return a function that returns the password for a URL."""
+
+    def password(u: str):
+        return user_and_pass(args, u)[1]
+
+    return password
+
+
+def otp_provider(args: Namespace):
+    """Return a function that returns the OTP for a URL."""
+
+    def otp(_):
+        return request_otp(args)
+
+    return otp
 
 
 def main():
     # pylint: disable=R0801
     """Main entrypoint for oidc-form-login utility."""
 
-    parser = ArgumentParser()
-    parser.add_argument("--client-id")
-    parser.add_argument("--client-secret")
-    parser.add_argument("-u", "--user", "--username", dest="username")
-    parser.add_argument("-p", "--pass", "--password", dest="password")
-    parser.add_argument("--otp", "--totp")
+    parser = ArgumentParser(parents=[common_args()])
+    parser.add_argument("--client-id", default=os.environ.get("OIDC_CLIENT_ID"))
+    parser.add_argument("--client-secret", default=os.environ.get("OIDC_CLIENT_SECRET"))
+    parser.add_argument("--otp", "--totp", default=os.environ.get("OIDC_OTP"))
     parser.add_argument(
         "--username-field", nargs="*", help="name of username input field in login form"
     )
@@ -1015,36 +1206,29 @@ def main():
         "--mode", default=AuthResultMode.LAST.value, choices=[e.value for e in AuthResultMode]
     )
     parser.add_argument("--issuer", metavar="URL")
-    parser.add_argument("--authorization-endpoint")
-    parser.add_argument("--redirect-uri")
-    parser.add_argument("--token-endpoint")
+    parser.add_argument("--authorization-endpoint", metavar="URL")
+    parser.add_argument("--redirect-uri", metavar="URL")
+    parser.add_argument("--token-endpoint", metavar="URL")
     parser.add_argument("--scope", nargs="*")
     parser.add_argument("--state")
-    parser.add_argument("-k", "--insecure", default=True, dest="verify", action="store_false")
-    parser.add_argument("url")
+    parser.add_argument("--click-before", action="append", default=[])
+    parser.add_argument("--click-after", action="append", default=[])
+    parser.add_argument("url", help="login start page")
 
     args = parser.parse_args()
-
-    def username_provider() -> str:
-        request_user_and_password(args)
-        return args.username
-
-    def password_provider() -> str:
-        request_user_and_password(args)
-        return args.password
-
-    def otp_provider() -> str:
-        return request_otp(args)
+    prompt_stdin_password(args)
 
     req = AuthRequest(
         url=args.url,
         mode=AuthResultMode[args.mode.upper()],
-        username=username_provider,
-        password=password_provider,
-        otp=otp_provider,
+        username=username_provider(args),
+        password=password_provider(args),
+        otp=otp_provider(args),
         issuer=args.issuer,
         authorization_endpoint=args.authorization_endpoint,
         token_endpoint=args.token_endpoint,
+        click_before=args.click_before,
+        click_after=args.click_after,
         username_field=args.username_field,
         password_field=args.password_field,
         otp_field=args.otp_field,

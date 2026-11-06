@@ -19,7 +19,6 @@ import tempfile
 from argparse import ArgumentParser, Namespace
 from collections.abc import Iterable
 from typing import Never, cast
-from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
@@ -28,9 +27,12 @@ from requests import Response
 from oidc_form_login.login import (
     AuthRequest,
     LoginError,
+    common_args,
     login,
     parse_content_type,
-    request_user_and_password,
+    password_provider,
+    prompt_stdin_password,
+    username_provider,
 )
 
 
@@ -231,7 +233,7 @@ def run_kubectl_commands(r: Response, *, interactive=False, run_all=False, verbo
 
 
 def download_kubeconfig(
-    session: requests.Session, url: str, output_file: str, verify=True, verbose=False
+    session: requests.Session, url: str, output_file: str, backup=True, verify=True, verbose=False
 ):
     """Download kubeconfig after successful gangway authentication.
 
@@ -240,6 +242,7 @@ def download_kubeconfig(
     :param session: authentication session
     :param url: url to download
     :param output_file: file to save and backup
+    :param backup: backup kubeconfig if it exists
     :param verify: TLS verification is disabled if False
     :param verbose: print actions taken if True
     """
@@ -254,11 +257,11 @@ def download_kubeconfig(
     content_type = parse_content_type(r)
     if "text/html" in content_type or r.text.strip().startswith("<"):
         raise GangwayError(
-            "Downloaded kubeconfig appears to be HTML. Authentication likely failed or redirected.",
+            "Downloaded kubeconfig appears to be HTML. Authentication likely failed.",
             r.text,
         )
 
-    if os.path.exists(output_file):
+    if backup and os.path.exists(output_file):
         backup_file = output_file + ".bak"
         if verbose:
             print(f"Backing up existing config to {backup_file}")
@@ -323,10 +326,12 @@ def _validate_kubeconfigs(parser: ArgumentParser, args: Namespace) -> list[str]:
     else:
         configs = expand_kubeconfig_users(args.kubeconfig)
 
-    if (args.download or len(configs) > 1) and len(args.url) != len(configs):
+    nurls = len(args.url)
+    nconf = len(configs)
+    if (args.download or len(configs) > 1) and nurls != nconf:
         parser.exit(
             1,
-            f"{len(args.url)} clusters specified, but {len(configs)} kubeconfigs: {configs}",
+            f"{nurls} clusters specified, but {nconf} kubeconfig{'s'[: nconf ^ 1]}: {configs}",
         )
     return configs
 
@@ -334,80 +339,72 @@ def _validate_kubeconfigs(parser: ArgumentParser, args: Namespace) -> list[str]:
 def main():
     """gangway-login main entrypoint."""
 
-    parser = ArgumentParser()
-    parser.add_argument("-u", "--user", "--username", dest="username")
-    parser.add_argument("-p", "--pass", "--password", dest="password")
+    parser = ArgumentParser(parents=[common_args()])
+    parser.add_argument("url", nargs="+", help="URL for gangway start page")
     parser.add_argument(
-        "-i",
-        "--interactive",
+        "-y",
+        "--yes",
         dest="interactive",
-        default=True,
-        action="store_true",
-        help="confirm commands to run",
+        action="store_false",
+        help="skip confirmation",
     )
-    parser.add_argument("-y", "--non-interactive", dest="interactive", action="store_false")
     parser.add_argument(
+        "-a",
         "--all",
         action="store_true",
-        help="run all gangway commands (not only kubectl config set-credentials)",
-    )
-    parser.add_argument("-k", "--insecure", default=True, dest="verify", action="store_false")
-    parser.add_argument(
-        "-q", "--quiet", action="store_false", dest="verbose", help="quiet operation"
+        help="run all commands rather than kubectl config set-credentials",
     )
     parser.add_argument(
-        "-v", "--verbose", action="store_true", dest="verbose", help="verbose operation"
+        "--single-credential",
+        action="store_true",
+        help="reuse the same credentials for every login",
     )
     parser.add_argument(
         "--preserve-context",
         action="store_true",
-        help="preserve current kubectl context",
+        help="preserve current kubectl context (ignored when downloading)",
     )
     parser.add_argument(
         "-d",
         "--download",
         action="store_true",
-        help="Download and replace kubeconfig rather than running commands",
+        help="download kubeconfig instead of executing commands",
     )
-    parser.add_argument("--download-url", dest="download", help="URL to download kubeconfig from")
+    parser.add_argument(
+        "-b",
+        "--backup",
+        action="store_true",
+        help="backup kubeconfig when downloading",
+    )
     parser.add_argument(
         "-o",
         "--kubeconfig",
         nargs="*",
-        help=f"Kubeconfig(s) to update or replace (default: {_DEFAULT_KUBECONFIG})",
+        help=f"kubeconfig to update (default: {_DEFAULT_KUBECONFIG})",
     )
-    parser.add_argument("url", nargs="+")
 
     args = parser.parse_args()
     kubeconfigs = _validate_kubeconfigs(parser, args)
+    prompt_stdin_password(args)
 
-    def username_provider() -> str:
-        request_user_and_password(args)
-        return args.username
-
-    def password_provider() -> str:
-        request_user_and_password(args)
-        return args.password
-
+    username = username_provider(args)
+    password = password_provider(args)
     for i, url in enumerate(args.url):
         req = AuthRequest(
             url=url,
-            username=username_provider,
-            password=password_provider,
+            username=username,
+            password=password,
             verify=args.verify,
         )
         try:
             with login(req) as res:
                 kubeconfig = kubeconfigs[0] if len(kubeconfigs) == 1 else kubeconfigs[i]
                 if args.download:
-                    if args.download is True:
-                        kubeconf_url = url.rstrip("/") + "/kubeconf"
-                    else:
-                        kubeconf_url = urljoin(url, str(args.download))
                     download_kubeconfig(
                         res.session,
-                        kubeconf_url,
+                        url.rstrip("/") + "/kubeconf",
                         kubeconfig,
+                        backup=args.backup,
                         verify=args.verify,
                         verbose=args.verbose,
                     )

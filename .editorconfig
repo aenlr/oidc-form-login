@@ -12,7 +12,7 @@ max_line_length = 99
 [*.md]
 trim_trailing_whitespace = false
 
-[*.yaml]
+[*.{yaml,yml}]
 indent_size = 2
 
 [Makefile]
