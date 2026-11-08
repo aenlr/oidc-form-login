@@ -331,7 +331,7 @@ def _validate_kubeconfigs(parser: ArgumentParser, args: Namespace) -> list[str]:
     if (args.download or len(configs) > 1) and nurls != nconf:
         parser.exit(
             1,
-            f"{nurls} clusters specified, but {nconf} kubeconfig{'s'[: nconf ^ 1]}: {configs}",
+            f"{nurls} cluster{'s'[: nurls ^ 1]} specified, but {nconf} kubeconfig{'s'[: nconf ^ 1]}: {configs}",
         )
     return configs
 
@@ -379,7 +379,7 @@ def main():
     parser.add_argument(
         "-o",
         "--kubeconfig",
-        nargs="*",
+        action="append",
         help=f"kubeconfig to update (default: {_DEFAULT_KUBECONFIG})",
     )
 
