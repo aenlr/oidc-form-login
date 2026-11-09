@@ -1152,7 +1152,7 @@ def common_args() -> ArgumentParser:
     )
     parser.add_argument(
         "--reset-keyring",
-        default=os.environ.get("OIDC_RESET_KEYRING") in ("true", "1", None),
+        default=os.environ.get("OIDC_RESET_KEYRING") in ("true", "1"),
         action="store_true",
         help="store but do not load credentials (env: OIDC_RESET_KEYRING)",
     )
