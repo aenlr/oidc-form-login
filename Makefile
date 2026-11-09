@@ -1,52 +1,59 @@
 #################################################
 # Variables
 #################################################
-# Override python version when not using uv (i.e make PYTHON3=python3.8)
-PYTHON3 = python3.13
+# Override python version (i.e make UV_PYTHON=3.14)
+export UV_PYTHON := 3.13
+PYTHON3 := python$(UV_PYTHON)
 
 # Add venv to PATH
-export PATH := $(PWD)/.venv/bin:$(PWD)/.venv/Scripts:$(PATH)
+export UV_PROJECT_ENVIRONMENT := .venv
+export PATH := $(PWD)/$(UV_PROJECT_ENVIRONMENT)/bin:$(PWD)/$(UV_PROJECT_ENVIRONMENT)/Scripts:$(PATH)
 
 SOURCES = $(wildcard src/oidc_form_login/*.py)
 #TEST_SOURCES = $(wildcard src/tests/*.py)
-PYINST_FLAGS = --distpath standalone
+PYINST_PREFIX = .
+PYINST_DIST_PATH = $(PYINST_PREFIX)/standalone
+PYINST_WORK_PATH = $(PYINST_PREFIX)/build
+PYINST_SPEC_PATH = $(PYINST_WORK_PATH)
+PYINST_FLAGS = --distpath $(PYINST_DIST_PATH) --specpath $(PYINST_SPEC_PATH) --workpath $(PYINST_WORK_PATH)
 
 #################################################
 # Main targets
 #################################################
-.PHONY: all build
+.PHONY: all build dev
 
-all: check build
+all: build
 build: dist standalone
-dev: venv hooks
 
 #################################################
 # Environment
 #################################################
-venv: .venv
-.venv:
-	@uv venv --allow-existing || $(PYTHON3) -m venv --prompt oidc-form-login .venv
-	@if ! uv sync --dev; then \
-		python -m pip install --upgrade pip; \
-		pip install --group dev -e .; \
+venv: $(UV_PROJECT_ENVIRONMENT)
+$(UV_PROJECT_ENVIRONMENT):
+	@if ! uv sync --extra packaging; then \
+		$(PYTHON3) -m venv --prompt oidc-form-login $(UV_PROJECT_ENVIRONMENT) && \
+		python -m pip install --upgrade pip && \
+		pip install -e .[packaging]; \
 	fi
 
-hooks: .git/hooks/pre-commit
-.git/hooks/pre-commit: .venv
-	@pre-commit install
+dev: venv
+	if ! uv sync --extra dev --extra packaging; then \
+		pip install -e .[dev,packaging]; \
+	fi
+	pre-commit install
 
 #################################################
 # Build and package
 #################################################
-dist: $(SOURCES) pyproject.toml src/oidc_form_login .venv
+dist: $(SOURCES) pyproject.toml src/oidc_form_login $(UV_PROJECT_ENVIRONMENT)
 	@if ! uv build --wheel; then \
 		pip wheel --no-deps -w dist . ; \
 	fi
 
-standalone: standalone/gangway-login standalone/oidc-form-login
-standalone/oidc-form-login: src/oidc_form_login/login.py src/oidc_form_login/__init__.py .venv
+standalone: $(PYINST_DIST_PATH)/gangway-login $(PYINST_DIST_PATH)/oidc-form-login
+$(PYINST_DIST_PATH)/oidc-form-login: src/oidc_form_login/login.py src/oidc_form_login/__init__.py $(UV_PROJECT_ENVIRONMENT)
 	pyinstaller $(PYINST_FLAGS) --name oidc-form-login --onefile src/oidc_form_login/login.py
-standalone/gangway-login: $(SOURCES) src/oidc_form_login .venv
+$(PYINST_DIST_PATH)/gangway-login: $(SOURCES) src/oidc_form_login $(UV_PROJECT_ENVIRONMENT)
 	pyinstaller $(PYINST_FLAGS) --name gangway-login --onefile src/oidc_form_login/gangway.py
 
 #################################################
@@ -55,30 +62,35 @@ standalone/gangway-login: $(SOURCES) src/oidc_form_login .venv
 check: test typecheck
 typecheck: mypy
 lint: ruff-check
-test: $(SOURCES) $(TEST_SOURCES) src/oidc_form_login .venv
+test: $(SOURCES) $(TEST_SOURCES) src/oidc_form_login venv
 	pytest
 
-mypy: .venv
+mypy: venv
 	mypy src
 
-ruff-check: .venv
+ruff-check: venv
 	ruff check --fix
 
-ruff-check-unsafe: .venv
+ruff-check-unsafe: venv
 	ruff check --fix --unsafe-fixes
 	ruff format
 
-pylint: .venv
+pylint: venv
 	pylint src
 
-format: .venv
+format: venv
 	ruff format
 
 #################################################
 # Cleaning
 #################################################
 clean:
-	rm -rf dist standalone standalone-build src/*.egg-info src/oidc_form_login/__pycache__ .*_cache
+	rm -rf src/*.egg-info src/oidc_form_login/__pycache__ .*_cache
+	rm -rf build build-linux build-win standalone standalone-linux standalone-win
 
-distclean: clean
-	rm -rf .venv uv.lock
+reallyclean: clean
+	rm -rf .venvw .venvl
+	rm -rf dist dist-linux dist-win
+
+distclean: reallyclean
+	rm -rf .venv

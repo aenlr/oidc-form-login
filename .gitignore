@@ -2,11 +2,10 @@
 .idea/
 *.iml
 
-build/
-dist/
-standalone/
-.venv/
-venv/
+build*/
+dist*/
+standalone*/
+.venv*/
 
 .coverage
 .*_cache/

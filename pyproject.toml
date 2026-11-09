@@ -18,18 +18,20 @@ dependencies = [
     "urllib3>=2.8.0",
 ]
 
-[dependency-groups]
+[project.optional-dependencies]
 dev = [
     "coverage[toml]",
     "mypy",
     "pre-commit",
-    "pyinstaller",
     "pylint",
     "pytest",
     "pytest-cov",
     "ruff",
     "types-requests",
     "urllib3"
+]
+packaging = [
+    "pyinstaller"
 ]
 
 [project.scripts]

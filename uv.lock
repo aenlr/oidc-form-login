@@ -818,43 +818,42 @@ dependencies = [
     { name = "urllib3" },
 ]
 
-[package.dev-dependencies]
+[package.optional-dependencies]
 dev = [
     { name = "coverage" },
     { name = "mypy" },
     { name = "pre-commit" },
-    { name = "pyinstaller" },
     { name = "pylint" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
     { name = "types-requests" },
     { name = "urllib3" },
+]
+packaging = [
+    { name = "pyinstaller" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "beautifulsoup4" },
+    { name = "coverage", extras = ["toml"], marker = "extra == 'dev'" },
     { name = "keyring", specifier = ">=25.7.0" },
+    { name = "mypy", marker = "extra == 'dev'" },
     { name = "pip-system-certs" },
+    { name = "pre-commit", marker = "extra == 'dev'" },
+    { name = "pyinstaller", marker = "extra == 'packaging'" },
+    { name = "pylint", marker = "extra == 'dev'" },
+    { name = "pytest", marker = "extra == 'dev'" },
+    { name = "pytest-cov", marker = "extra == 'dev'" },
     { name = "requests" },
+    { name = "ruff", marker = "extra == 'dev'" },
     { name = "secretstorage", specifier = ">=3.5.0" },
+    { name = "types-requests", marker = "extra == 'dev'" },
     { name = "urllib3", specifier = ">=2.8.0" },
+    { name = "urllib3", marker = "extra == 'dev'" },
 ]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "coverage", extras = ["toml"] },
-    { name = "mypy" },
-    { name = "pre-commit" },
-    { name = "pyinstaller" },
-    { name = "pylint" },
-    { name = "pytest" },
-    { name = "pytest-cov" },
-    { name = "ruff" },
-    { name = "types-requests" },
-    { name = "urllib3" },
-]
+provides-extras = ["dev", "packaging"]
 
 [[package]]
 name = "packaging"

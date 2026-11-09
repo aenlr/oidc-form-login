@@ -80,32 +80,48 @@ Or per user
 
 ## Development
 
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/).
+
 Simply run `make` do everything covered below.
+
 `uv` is preferred if installed, otherwise plain pip is used.
 
 ### Using uv (any platform)
 
-    uv sync --extra dev
+    # omit --extra dev and pre-commit if only packaging
+    uv sync --extra dev --extra packaging
     uv run pre-commit install
     uv run pyinstaller --distpath standalone --name gangway-login --onefile src/oidc_form_login/gangway.py
 
 ### Using virtual environment and pip
 
 #### Create virtual environment (bash)
+```console
     $ python3 -m venv --prompt oidc-form-login .venv
     $ . .venv/bin/activate
+```
 
 #### Create virtual environment (Windows cmd.exe)
+```bat
     C:\> python -m venv --prompt oidc-form-login ,venv
     C:\> .venv/Scripts/activate
+```
 
 #### Create virtual environment (Windows PowerShell)
+```PowerShell
     PS1> python -m venv venv
     PS1> ./venv/Scripts/activate.ps1
+```
 
-#### Install dependencies
-    (oidc-form-login) $ pip install -e .[dev]
-    (oidc-form-login) $ pre-commit install
+#### Install dependencies and git hooks
+
+Run in the virtual environment.
+
+    pip install -e .[dev,packaging]
+    pre-commit install
 
 #### Package executable
-    (oidc-form-login) $ pyinstaller --distpath standalone --name gangway-login --onefile src/oidc_form_login/gangway.py
+
+Run in the virtual environment.
+
+    pyinstaller --distpath standalone --name gangway-login --onefile src/oidc_form_login/gangway.py
