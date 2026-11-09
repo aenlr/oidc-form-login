@@ -2,16 +2,14 @@
 .idea/
 *.iml
 
-dist/
-venv/
-build/
+build*/
+dist*/
+standalone*/
+.venv*/
 
 .coverage
-.eggs/
-.mypy_cache
-.pytest_cache/
-.pytype
-*.egg-info/
-__pycache__
-
+.*_cache/
+__pycache__/
 *.spec
+
+uv.toml
