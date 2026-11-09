@@ -33,4 +33,5 @@ release:
       glab release create "$CI_COMMIT_TAG" \
         --name "Release ${CI_COMMIT_TAG#v}" \
         --notes-file CHANGELOG.md \
+        --use-package-registry \
         ./dist-*/*
