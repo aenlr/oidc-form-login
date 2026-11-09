@@ -1110,6 +1110,8 @@ def _print_result(r: AuthResult, file=sys.stdout):
 
 
 def common_args() -> ArgumentParser:
+    from importlib.metadata import version
+
     parser = ArgumentParser(add_help=False)
     parser.add_argument(
         "-q", "--quiet", action="store_false", dest="verbose", help="print nothing unless needed"
@@ -1155,6 +1157,10 @@ def common_args() -> ArgumentParser:
         dest="verify",
         action="store_false",
         help="skip TLS host verification",
+    )
+
+    parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {version('oidc_form_login')}"
     )
 
     return parser
