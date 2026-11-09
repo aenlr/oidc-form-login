@@ -14,7 +14,9 @@ if [ -e /.dockerenv ] && ! wine --version >/dev/null 2>&1; then
     # Install packages
     if apt-get --version >/dev/null 2>&1; then
         apt-get update
-        apt-get install --no-install-recommends --assume-yes make binutils unzip wine
+        apt-get install --no-install-recommends --assume-yes curl make binutils unzip wine
+    elif zypper --version >/dev/null 2>&1; then
+        zypper -n in --no-recommends curl make binutils unzip wine
     else
         echo "$0: unsupported environment" >&2
         cat /etc/os-release 2>/dev/null
@@ -23,6 +25,9 @@ if [ -e /.dockerenv ] && ! wine --version >/dev/null 2>&1; then
 fi
 
 # Install uv
+if [[ -z "${UV_INSTALLER_GITHUB_BASE_URL-}" && -n "${GITHUB_URL-}" ]]; then
+    UV_INSTALLER_GITHUB_BASE_URL="${GITHUB_URL}"
+fi
 if ! [[ -e /tmp/$uv_linux/uv && -r /tmp/$uv_win/uv.exe ]]; then
     cd /tmp
     if [ -n "${UV_INSTALLER_GITHUB_BASE_URL:-}" ]; then
@@ -41,24 +46,18 @@ $uv_win_sha256  $uv_win_zip
 EOF
     for url in "${urls[@]}"; do
         for f in "$uv_linux_tar" "$uv_win_zip"; do
-            if python - "$url/$f" "$f" <<EOF
-import os
-import sys
-from urllib.request import urlretrieve
-if not os.path.exists(sys.argv[2]):
-    print("Downloading", sys.argv[1], "...")
-    urlretrieve(sys.argv[1], sys.argv[2])
-EOF
-            then
-                if sha256sum --check uv.sha256; then
-                    ok=1
-                    break
-                fi
+            if [ ! -e "$f" ]; then
+                echo "Downloading $url/$f..."
+                curl --fail-with-body -ksSLO "$url/$f"
+            fi
+            if sha256sum --check uv.sha256; then
+                ok=1
+                break
             fi
         done
     done
 
-    if [ "$ok" != 1 ]; then
+    if [ "$ok" = 0 ] && ! sha256sum --check uv.sha256; then
         echo "$0: uv download failed" >&2
         exit 1
     fi

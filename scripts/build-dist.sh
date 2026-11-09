@@ -6,10 +6,14 @@ BASE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 export UV_PROJECT_ENVIRONMENT=.venvl
 
 clean=1
+release_tag=
 while [ $# -gt 0 ]; do
     case "$1" in
         --no-clean)
             clean=0
+            ;;
+        [0-9]*.[0-9]*)
+            release_tag="$1"
             ;;
         *)
             echo "$0: invalid option: $1" >&2
@@ -26,8 +30,13 @@ if [ -z "$version" ]; then
     exit 1
 fi
 
-"$SCRIPT_DIR/setup-tools.sh"
+if [[ -n "$release_tag" && "$release_tag" != "$version" ]]; then
+    echo "$0: mismatched release tag and version: $release_tag != $version" >&2
+    exit 1
+fi
 
+#"$SCRIPT_DIR/clean.sh" really
+"$SCRIPT_DIR/setup-tools.sh"
 mkdir -p "dist-$version"
 if [ -n "${HOST_UID-}" ]; then
     chown "$HOST_UID:${HOST_GID:?}" "dist-$version"
@@ -44,6 +53,13 @@ if ! wine cmd.exe /C scripts/build-win.bat "$version"; then
 fi
 
 # Cleanup
+cd "dist-$version"
+for f in *; do
+    sha256sum "$f" >"$f.sha256"
+done
+cd ..
+ls -l "dist-$version"
+
 if [ -n "${HOST_UID-}" ]; then
     chown -R "$HOST_UID:$HOST_GID" "dist-$version"
 fi

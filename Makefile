@@ -30,14 +30,14 @@ build: dist standalone
 #################################################
 venv: $(UV_PROJECT_ENVIRONMENT)
 $(UV_PROJECT_ENVIRONMENT):
-	@if ! uv sync --extra packaging; then \
+	@if ! uv sync --extra packaging $(EXTRA_UV_SYNC_ARGS); then \
 		$(PYTHON3) -m venv --prompt oidc-form-login $(UV_PROJECT_ENVIRONMENT) && \
 		python -m pip install --upgrade pip && \
 		pip install -e .[packaging]; \
 	fi
 
 dev: venv
-	if ! uv sync --extra dev --extra packaging; then \
+	if ! uv sync --extra packaging --extra dev $(EXTRA_UV_SYNC_ARGS); then \
 		pip install -e .[dev,packaging]; \
 	fi
 	pre-commit install
