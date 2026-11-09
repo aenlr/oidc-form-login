@@ -983,7 +983,7 @@ def user_and_pass(args: Namespace, url: str = "") -> tuple[str | None, str | Non
             use_keyring = False
 
     args.credential_url = url
-    if use_keyring and usr:
+    if use_keyring and usr and not args.reset_keyring:
         cred = keyring.get_credential(url, usr)
         if cred:
             args.credential = cred
@@ -992,7 +992,7 @@ def user_and_pass(args: Namespace, url: str = "") -> tuple[str | None, str | Non
     prompted_user = False
     printed_url = False
     if usr is None:
-        if use_keyring:
+        if use_keyring and not args.reset_keyring:
             cred = keyring.get_credential(url, None)
             if cred:
                 args.credential = cred
@@ -1017,7 +1017,7 @@ def user_and_pass(args: Namespace, url: str = "") -> tuple[str | None, str | Non
 
     # Ask user for password and store it.
     if cached and cached.username == usr:
-        psw = getpass("Password (****): ")
+        psw = getpass(f"Password ({usr}=****): ") or cached.password
     else:
         psw = getpass("Password: " if prompted_user else f"Password ({usr}): ")
 
@@ -1149,6 +1149,12 @@ def common_args() -> ArgumentParser:
         default=os.environ.get("OIDC_KEYRING") in ("true", "1", None),
         action="store_false",
         help="do not store credentials (env: OIDC_KEYRING)",
+    )
+    parser.add_argument(
+        "--reset-keyring",
+        default=os.environ.get("OIDC_RESET_KEYRING") in ("true", "1", None),
+        action="store_true",
+        help="store but do not load credentials (env: OIDC_RESET_KEYRING)",
     )
     parser.add_argument(
         "-k",
