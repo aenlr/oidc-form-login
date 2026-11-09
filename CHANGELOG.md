@@ -18,6 +18,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - Refactored core login logic to support response_mode=form_post and auto-submitted forms.
 - Improved control over returned results in the login process.
+- Backup of kubeconfig is no longer enabled by default.
 
 ### Fixed
 - Fixed `gangway-login` where `-o/--kubeconfig` option consumed all subsequent arguments.
