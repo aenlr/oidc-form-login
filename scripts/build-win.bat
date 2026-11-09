@@ -1,6 +1,9 @@
-REM @echo off
+@echo off
 set version=%1
-if %version% == "" goto error
+if "%version%" == "" (
+    echo Syntax: build-win.bat VERSION
+    goto error
+)
 if exist Z:\tmp\uv-x86_64-pc-windows-msvc\uv.exe set "PATH=Z:\tmp\uv-x86_64-pc-windows-msvc;%PATH%"
 
 set UV_PROJECT_ENVIRONMENT=.venvw

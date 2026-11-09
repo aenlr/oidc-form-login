@@ -85,12 +85,10 @@ format: venv
 # Cleaning
 #################################################
 clean:
-	rm -rf src/*.egg-info src/oidc_form_login/__pycache__ .*_cache
-	rm -rf build build-linux build-win standalone standalone-linux standalone-win
+	./scripts/clean.sh
 
-reallyclean: clean
-	rm -rf .venvw .venvl
-	rm -rf dist dist-linux dist-win
+reallyclean:
+	./scripts/clean.sh really
 
-distclean: reallyclean
-	rm -rf .venv
+distclean:
+	./scripts/clean.sh dist

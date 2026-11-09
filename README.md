@@ -110,7 +110,7 @@ Simply run `make` do everything covered below.
 #### Create virtual environment (Windows PowerShell)
 ```PowerShell
     PS1> python -m venv venv
-    PS1> ./venv/Scripts/activate.ps1
+    PS1> ./.venv/Scripts/activate.ps1
 ```
 
 #### Install dependencies and git hooks

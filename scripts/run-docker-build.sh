@@ -7,13 +7,14 @@ if [ $# -eq 0 ]; then
 fi
 
 
-python_version=$(sed -rn 's|^requires-python\s*=\s*"(>?=)?\s*([^"]+)"$|\2|p' <pyproject.toml)
+python_version=$(sed -rn 's/^requires-python\s*=\s*"(<=|>=|==)?\s*([^ ,"]+).*"$/\2/p' <pyproject.toml)
 if [ -z "$python_version" ]; then
     echo "$0: python version not detected" >&2
     exit 1
 fi
 
-make clean
+./scripts/clean.sh
+export MSYS_NO_PATHCONV=1
 docker run -it --rm \
     -e "HOST_UID=$(id -u)" -e "HOST_GID=$(id -g)" \
     -e UV_INSTALLER_GITHUB_BASE_URL \

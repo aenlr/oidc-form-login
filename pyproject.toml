@@ -2,12 +2,13 @@
 name = "oidc-form-login"
 version = "0.3"
 authors = [ { name = "Anders Norlander" } ]
-requires-python = ">=3.13"
+requires-python = ">=3.13,<3.15"
 description = "Login via forms"
 urls = {}
 classifiers = [
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.13"
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14"
 ]
 dependencies = [
     "beautifulsoup4",

@@ -34,12 +34,12 @@ if [ -n "${HOST_UID-}" ]; then
 fi
 
 if ! "$SCRIPT_DIR/build-linux.sh" "$version"; then
-    [ "$clean" = 0 ] || make reallyclean
+    [ "$clean" = 0 ] || "$SCRIPT_DIR/clean.sh" really
     exit 1
 fi
 
 if ! wine cmd.exe /C scripts/build-win.bat "$version"; then
-    [ "$clean" = 0 ] || make reallyclean
+    [ "$clean" = 0 ] || "$SCRIPT_DIR/clean.sh" really
     exit 1
 fi
 
@@ -48,4 +48,4 @@ if [ -n "${HOST_UID-}" ]; then
     chown -R "$HOST_UID:$HOST_GID" "dist-$version"
 fi
 
-[ "$clean" = 0 ] || make reallyclean
+[ "$clean" = 0 ] || "$SCRIPT_DIR/clean.sh" really
